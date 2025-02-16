@@ -1,11 +1,24 @@
-// constants.h
-
 #ifndef CONSTANTS_H
 #define CONSTANTS_H
 
-// 声明 GPU 常量
-extern __constant__ int   limiter;
-extern __constant__ float g[9];
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#ifdef DEFINE_CONSTANTS
+    // 当 DEFINE_CONSTANTS 被定义时，直接定义，不加 extern
+    #define CONSTEXTERN 
+#else
+    // 否则，只做声明
+    #define CONSTEXTERN extern
+#endif
+
+CONSTEXTERN __constant__ int limiter;
+CONSTEXTERN __constant__ float g[3];
+
+#ifdef __cplusplus
+}
+#endif
 
 // 一些可能用到的枚举
 enum Vars {
@@ -27,5 +40,8 @@ enum Processor {
     CPU,
     GPU
 };
+
+// 清除宏定义，防止污染全局
+#undef CONSTEXTERN
 
 #endif // CONSTANTS_H

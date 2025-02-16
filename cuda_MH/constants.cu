@@ -1,4 +1,3 @@
-// constants.cu
-// 在 GPU 上定义常量
-__constant__ int   limiter;
-__constant__ float g[9];
+// 定义宏，表示将在此文件中进行变量定义
+#define DEFINE_CONSTANTS
+#include "constants.h"

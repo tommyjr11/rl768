@@ -2,7 +2,6 @@
 
 #ifndef DATA_H
 #define DATA_H
-
 #include <cuda_runtime.h>
 #define CUDA_CHECK(call) \
     { \

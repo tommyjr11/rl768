@@ -3,15 +3,15 @@
 #include "data.h"
 
 int main() {
-    int   limiter_CPU = 2;
-    float gamma_CPU[9];
-    gamma_CPU[0] = 1.4;
+    // int   limiter_CPU = 2;
+    // float gamma_CPU[3];
+    // gamma_CPU[0] = 1.4;
 
-    gamma_CPU[1] = (gamma_CPU[0] - 1.f) / (2.f * gamma_CPU[0]);
-    gamma_CPU[2] = (gamma_CPU[0] + 1.f) / (2.f * gamma_CPU[0]);
+    // gamma_CPU[1] = (gamma_CPU[0] - 1.f) / (2.f * gamma_CPU[0]);
+    // gamma_CPU[2] = (gamma_CPU[0] + 1.f) / (2.f * gamma_CPU[0]);
 
-    cudaMemcpyToSymbol(limiter, &limiter_CPU, sizeof(limiter_CPU), 0, cudaMemcpyHostToDevice);
-    cudaMemcpyToSymbol(g, &gamma_CPU, sizeof(gamma_CPU), 0, cudaMemcpyHostToDevice);
+    // cudaMemcpyToSymbol(limiter, &limiter_CPU, sizeof(limiter_CPU), 0, cudaMemcpyHostToDevice);
+    // cudaMemcpyToSymbol(g, &gamma_CPU, sizeof(gamma_CPU), 0, cudaMemcpyHostToDevice);
 
     solVectors d_data;
     allocateDeviceMemory(d_data);
