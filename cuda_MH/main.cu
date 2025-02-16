@@ -1,32 +1,26 @@
-// main.cu
-
 #include <iostream>
+#include "constants.h"
 #include "data.h"
 
 int main() {
-    // 1. 在 GPU 上分配内存
+    int   limiter_CPU = 2;
+    float gamma_CPU[9];
+    gamma_CPU[0] = 1.4;
+
+    gamma_CPU[1] = (gamma_CPU[0] - 1.f) / (2.f * gamma_CPU[0]);
+    gamma_CPU[2] = (gamma_CPU[0] + 1.f) / (2.f * gamma_CPU[0]);
+
+    cudaMemcpyToSymbol(limiter, &limiter_CPU, sizeof(limiter_CPU), 0, cudaMemcpyHostToDevice);
+    cudaMemcpyToSymbol(g, &gamma_CPU, sizeof(gamma_CPU), 0, cudaMemcpyHostToDevice);
+
     solVectors d_data;
-    allocateDeviceMemory(d_data, N);
+    allocateDeviceMemory(d_data);
+    initDataAndCopyToGPU(d_data);
 
-    // 2. 初始化并复制初值到 GPU
-    initDataAndCopyToGPU(d_data, N);
+    std::cout << "test" << std::endl;
+    float dt = getdtGPU(d_data, 1.4f);
+    std::cout << "dt = " << dt << std::endl;
 
-    // 3. 启动 kernel 做一些测试
-    int blockSize = 128;
-    int gridSize  = (N + blockSize - 1) / blockSize;
-    kernelExample<<<gridSize, blockSize>>>(d_data, N);
-    cudaDeviceSynchronize(); // 等待 kernel 完成
-
-    // 4. （可选）检验结果
-    //    先在 CPU 上分配一份 host 数组来接收结果
-    float *h_p = new float[N];
-    cudaMemcpy(h_p, d_data.p, N * sizeof(float), cudaMemcpyDeviceToHost);
-    // 在此可打印部分结果看是否符合预期
-    std::cout << "p[0] = " << h_p[0] << std::endl;
-
-    // 5. 释放内存
-    delete[] h_p; // 释放 CPU 上的数组
-    freeDeviceMemory(d_data); // 释放 GPU 上的数组
-
+    freeDeviceMemory(d_data);
     return 0;
 }

@@ -1,12 +1,13 @@
-// constants.h (或 constants.cuh)
+// constants.h
 
 #ifndef CONSTANTS_H
 #define CONSTANTS_H
 
-// 声明外部符号
-extern __constant__ int limiter;
+// 声明 GPU 常量
+extern __constant__ int   limiter;
 extern __constant__ float g[9];
 
+// 一些可能用到的枚举
 enum Vars {
     RHO,
     V_X,
