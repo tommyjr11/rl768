@@ -16,8 +16,6 @@ int main() {
     solVectors d_data;
     allocateDeviceMemory(d_data);
     initDataAndCopyToGPU(d_data);
-
-    std::cout << "test" << std::endl;
     float dt = getdtGPU(d_data, 1.4f);
     std::cout << "dt = " << dt << std::endl;
 

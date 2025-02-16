@@ -83,41 +83,45 @@ __global__ void getMaxSpeedKernel(
     float r)
 {
     extern __shared__ float sdata[];
-    if (threadIdx.x == 0 && blockIdx.x == 0) {
-        printf("Kernel started!\n");
-    }
+
     int globalThreadId = blockIdx.x * blockDim.x + threadIdx.x;
     int step = blockDim.x * gridDim.x;
+    int tid = threadIdx.x;
 
     float localMax = 0.0f;
 
-    // 干脆不考虑 ghost 范围，对 totalSize = (nx+4)*(ny+4) 全局做循环
+    // **优化1: grid-stride 循环**
     for (int idx = globalThreadId; idx < totalSize; idx += step) {
-        // 不带偏移，直接当 idx
-        float c   = sqrtf(r * p [idx] / rho[idx]);
-        float spx = fabsf(vx[idx]) + c;
-        float spy = fabsf(vy[idx]) + c;
-        float speed = fmaxf(spx, spy);
-
-        localMax = fmaxf(localMax, speed);
+        float c   = sqrtf(r * __ldg(&p[idx]) / __ldg(&rho[idx]));  // **优化2: __ldg() 提高访存效率**
+        float spx = fabsf(__ldg(&vx[idx])) + c;
+        float spy = fabsf(__ldg(&vy[idx])) + c;
+        localMax  = fmaxf(localMax, fmaxf(spx, spy));
     }
 
-    sdata[threadIdx.x] = localMax;
+    // **优化3: Warp-level reduction**
+    sdata[tid] = localMax;
     __syncthreads();
 
-    // 块内归约
-    for (int s = blockDim.x / 2; s > 0; s >>= 1) {
-        if (threadIdx.x < s) {
-            sdata[threadIdx.x] = fmaxf(sdata[threadIdx.x], sdata[threadIdx.x + s]);
-        }
-        __syncthreads();
+    // **Warp 级别归约**
+    for (int offset = warpSize / 2; offset > 0; offset /= 2) {
+        localMax = fmaxf(localMax, __shfl_down_sync(0xffffffff, localMax, offset));
     }
 
-    // 写回
-    if (threadIdx.x == 0) {
-        blockMax[blockIdx.x] = sdata[0];
+    // **优化4: 使用 warp shuffle 归约到 warp 0**
+    if ((tid % warpSize) == 0) {
+        sdata[tid / warpSize] = localMax;
+    }
+    __syncthreads();
+
+    // **仅 block 内 thread 0 进行最终归约**
+    if (tid == 0) {
+        for (int i = 1; i < blockDim.x / warpSize; i++) {
+            localMax = fmaxf(localMax, sdata[i]);
+        }
+        blockMax[blockIdx.x] = localMax;
     }
 }
+
 
 float getmaxspeedGPU(const solVectors &d_data, float r)
 {

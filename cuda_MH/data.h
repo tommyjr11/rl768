@@ -33,18 +33,13 @@ struct solVectors {
     float *vy;
     float *p;
 };
-
 // 在 GPU 上分配/释放
 void allocateDeviceMemory(solVectors &d_data);
 void freeDeviceMemory(solVectors &d_data);
-
 // 初始化并复制到 GPU
 void initDataAndCopyToGPU(solVectors &d_data);
-
-
 // 使用 GPU 计算网格内的最大速度
 float getmaxspeedGPU(const solVectors &d_data, float r);
-
 // 计算时间步长 = C * min(dx, dy) / maxSpeed
 float getdtGPU(const solVectors &d_data, float r);
 
