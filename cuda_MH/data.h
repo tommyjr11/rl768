@@ -42,5 +42,7 @@ void initDataAndCopyToGPU(solVectors &d_data);
 float getmaxspeedGPU(const solVectors &d_data, float r);
 // 计算时间步长 = C * min(dx, dy) / maxSpeed
 float getdtGPU(const solVectors &d_data, float r);
+// 设置边界条件
+void applyBoundaryConditions(solVectors &d_u);
 
 #endif // DATA_H

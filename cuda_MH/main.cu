@@ -18,6 +18,8 @@ int main() {
     initDataAndCopyToGPU(d_data);
     float dt = getdtGPU(d_data, 1.4f);
     std::cout << "dt = " << dt << std::endl;
+    applyBoundaryConditions(d_data);
+    
 
     freeDeviceMemory(d_data);
     return 0;

@@ -166,15 +166,76 @@ float getmaxspeedGPU(const solVectors &d_data, float r)
 float getdtGPU(const solVectors &d_data, float r)
 {
     float maxSpeed = getmaxspeedGPU(d_data, r);
-    std::cout<<"maxSpeed: "<<maxSpeed<<std::endl;
-
-    // 避免除以0
     if (maxSpeed < 1e-15f) {
         return 1.0e10f; // 给一个很大的dt
     }
-
     // 选一个最小网格尺度
     float minDxDy = fminf(dx, dy);
     float dt = C * minDxDy / maxSpeed;
     return dt;
+}
+
+// 内核函数：更新左右边界
+__global__ void boundary_left_right(solVectors u, int truenx, int trueny) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i < trueny) {
+        int rowStart = i * truenx;
+        // 左边界：将第0列和第1列赋值为第2列的值
+        u.p[rowStart + 0] = u.p[rowStart + 2];
+        u.p[rowStart + 1] = u.p[rowStart + 2];
+        u.rho[rowStart + 0] = u.rho[rowStart + 2];
+        u.rho[rowStart + 1] = u.rho[rowStart + 2];
+        u.vx[rowStart + 0] = u.vx[rowStart + 2];
+        u.vx[rowStart + 1] = u.vx[rowStart + 2];
+        u.vy[rowStart + 0] = u.vy[rowStart + 2];
+        u.vy[rowStart + 1] = u.vy[rowStart + 2];
+        
+        // 右边界：将倒数第1列和倒数第2列赋值为倒数第3列的值
+        u.p[rowStart + (truenx - 2)] = u.p[rowStart + (truenx - 3)];
+        u.p[rowStart + (trueny - 1)] = u.p[rowStart + (trueny - 3)];
+        u.rho[rowStart + (truenx - 2)] = u.rho[rowStart + (truenx - 3)];
+        u.rho[rowStart + (trueny - 1)] = u.rho[rowStart + (trueny - 3)];
+        u.vx[rowStart + (truenx - 2)] = u.vx[rowStart + (truenx - 3)];
+        u.vx[rowStart + (trueny - 1)] = u.vx[rowStart + (trueny - 3)];
+        u.vy[rowStart + (truenx - 2)] = u.vy[rowStart + (truenx - 3)];
+        u.vy[rowStart + (trueny - 1)] = u.vy[rowStart + (trueny - 3)];
+    }
+}
+
+// 内核函数：更新上下边界
+__global__ void boundary_top_bottom(solVectors u, int truenx, int trueny) {
+    int j = blockIdx.x * blockDim.x + threadIdx.x;
+    if (j < truenx) {
+        // 上边界：将第0行和第1行赋值为第2行的值
+        u.p[0 * truenx + j] = u.p[2 * truenx + j];
+        u.p[1 * truenx + j] = u.p[2 * truenx + j];
+        u.rho[0 * truenx + j] = u.rho[2 * truenx + j];
+        u.rho[1 * truenx + j] = u.rho[2 * truenx + j];
+        u.vx[0 * truenx + j] = u.vx[2 * truenx + j];
+        u.vx[1 * truenx + j] = u.vx[2 * truenx + j];
+        u.vy[0 * truenx + j] = u.vy[2 * truenx + j];
+        u.vy[1 * truenx + j] = u.vy[2 * truenx + j];
+        // 下边界：将倒数第1行和倒数第2行赋值为倒数第3行的值
+        u.p[(trueny - 2) * truenx + j] = u.p[(trueny - 3) * truenx + j];
+        u.p[(trueny - 1) * truenx + j] = u.p[(trueny - 3) * truenx + j];
+        u.rho[(trueny - 2) * truenx + j] = u.rho[(trueny - 3) * truenx + j];
+        u.rho[(trueny - 1) * truenx + j] = u.rho[(trueny - 3) * truenx + j];
+        u.vx[(trueny - 2) * truenx + j] = u.vx[(trueny - 3) * truenx + j];
+        u.vx[(trueny - 1) * truenx + j] = u.vx[(trueny - 3) * truenx + j];
+    }
+}
+
+// 边界条件更新函数：接收指向GPU内存的指针
+void applyBoundaryConditions(solVectors &d_u) {
+    int threadsPerBlock = 128;
+    int truenx = nx + 4;
+    int trueny = ny + 4;
+    // 更新左右边界：每个线程处理一行
+    int blocksLR = ((ny+4) + threadsPerBlock - 1) / threadsPerBlock;
+    boundary_left_right<<<blocksLR, threadsPerBlock>>>(d_u, truenx, trueny);
+    // 更新上下边界：每个线程处理一列
+    int blocksTB = (nx + threadsPerBlock - 1) / threadsPerBlock;
+    boundary_top_bottom<<<blocksTB, threadsPerBlock>>>(d_u, truenx, trueny);
+    // 等待内核执行完成
+    cudaDeviceSynchronize();
 }
