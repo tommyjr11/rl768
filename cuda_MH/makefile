@@ -10,7 +10,7 @@ NVCCFLAGS = -std=c++14 -arch=sm_80 -gencode=arch=compute_80,code=sm_80
 TARGET = slic
 
 # 源文件列表
-SRCS = main.cu data.cu constants.cu
+SRCS = main.cu data.cu constants.cu slic.cu
 
 # 对应的目标文件
 OBJS = $(SRCS:.cu=.o)
