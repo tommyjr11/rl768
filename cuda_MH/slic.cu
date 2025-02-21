@@ -122,3 +122,22 @@ __device__ double limiterR2(double smaller, double larger) {
     return (R <= 0.0) ? 0.0 : ((R <= 1.0) ? R : fmin(1.0, 2.0/(1.0+R)));
 }
 
+__device__ void get_flux_x(const double *pri, int flux_choice, double r, double *flux) {
+    flux[0] = pri[0]*pri[1];
+    flux[1] = pri[0]*pri[1]*pri[1] + pri[3];
+    flux[2] = pri[0]*pri[1]*pri[2];
+    double Energy = 0.5*pri[0]*(pri[1]*pri[1] + pri[2]*pri[2]) + pri[3]/(r-1.0);
+    flux[3] = pri[1]*(pri[3] + Energy);
+}
+
+__device__ void get_flux_y(const double *pri, int flux_choice, double r, double *flux) {
+    flux[0] = pri[0]*pri[2];
+    flux[1] = pri[0]*pri[1]*pri[2];
+    flux[2] = pri[0]*pri[2]*pri[2] + pri[3];
+    double Energy = 0.5*pri[0]*(pri[1]*pri[1] + pri[2]*pri[2]) + pri[3]/(r-1.0);
+    flux[3] = pri[2]*(pri[3] + Energy);
+}
+
+__device__ void get_pri(const double *pri, int flux_choice, double r, double *flux){
+
+}
