@@ -5,3 +5,4 @@ nvcc --version
 du -sh ~/.* | sort -h
 rm -rf ~/.cache/*
 du -sh ~/.cache
+compute-sanitizer --tool memcheck ./slic

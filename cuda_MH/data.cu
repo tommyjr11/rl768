@@ -263,13 +263,13 @@ __global__ void boundary_left_right(solVectors u, int truenx, int trueny) {
         
         // 右边界：将倒数第1列和倒数第2列赋值为倒数第3列的值
         u.p[rowStart + (truenx - 2)] = u.p[rowStart + (truenx - 3)];
-        u.p[rowStart + (trueny - 1)] = u.p[rowStart + (trueny - 3)];
+        u.p[rowStart + (truenx - 1)] = u.p[rowStart + (truenx - 3)];
         u.rho[rowStart + (truenx - 2)] = u.rho[rowStart + (truenx - 3)];
-        u.rho[rowStart + (trueny - 1)] = u.rho[rowStart + (trueny - 3)];
+        u.rho[rowStart + (truenx - 1)] = u.rho[rowStart + (truenx - 3)];
         u.vx[rowStart + (truenx - 2)] = u.vx[rowStart + (truenx - 3)];
-        u.vx[rowStart + (trueny - 1)] = u.vx[rowStart + (trueny - 3)];
+        u.vx[rowStart + (truenx - 1)] = u.vx[rowStart + (truenx - 3)];
         u.vy[rowStart + (truenx - 2)] = u.vy[rowStart + (truenx - 3)];
-        u.vy[rowStart + (trueny - 1)] = u.vy[rowStart + (trueny - 3)];
+        u.vy[rowStart + (truenx - 1)] = u.vy[rowStart + (truenx - 3)];
     }
 }
 
@@ -309,6 +309,11 @@ void applyBoundaryConditions(solVectors &d_u) {
     boundary_top_bottom<<<blocksTB, threadsPerBlock>>>(d_u, truenx, trueny);
     // 等待内核执行完成
     cudaDeviceSynchronize();
+    cudaError_t err = cudaGetLastError();
+        if (err != cudaSuccess) {
+            std::cerr << "CUDA kernel launch failed at boundary: " << cudaGetErrorString(err) << std::endl;
+            exit(-1);
+        }
 }
 
 
@@ -344,7 +349,7 @@ __device__ void get_flux_y(const float *pri, float *flux) {
 }
 
 __global__ void computeHalftimeKernel_x(
-    const solVectors &d_data_con,
+    const solVectors d_data_con,
     solVectors d_half_uL,
     solVectors d_half_uR, 
     float dt,
@@ -361,8 +366,8 @@ __global__ void computeHalftimeKernel_x(
     int idx      = j*stride + i;
     int idx_left = j*stride + (i - 1);
     int idx_right= j*stride + (i + 1);
-
-    // --- Step 1: 读取 con(i,j), con(i-1,j), con(i+1,j) ---
+    
+    // --- Step 1: 读取 co  n(i,j), con(i-1,j), con(i+1,j) ---
     float conM[4];  // con(i,j)
     float conL[4];  // con(i-1,j)
     float conR[4];  // con(i+1,j)
@@ -380,7 +385,6 @@ __global__ void computeHalftimeKernel_x(
     conR[1] = d_data_con.vx [idx_right];
     conR[2] = d_data_con.vy [idx_right];
     conR[3] = d_data_con.p  [idx_right];
-
     // --- Step 2: 斜率限制，得到 tempL, tempR (仍在保守量空间) ---
     float tempL[4], tempR[4];
     for (int k = 0; k < 4; k++) {
@@ -404,7 +408,7 @@ __global__ void computeHalftimeKernel_x(
     float fluxL[4], fluxR[4];
     get_flux_x(priL, fluxL);
     get_flux_x(priR, fluxR);
-
+    
     // --- Step 4: 半步更新 (回到保守量空间) ---
     // tempL, tempR 各减去 0.5*(dt/dx)*(fluxR - fluxL)
     for (int k = 0; k < 4; k++) {
@@ -414,23 +418,18 @@ __global__ void computeHalftimeKernel_x(
     }
 
     // --- Step 5: 把结果存到 half_uL, half_uR 里 ---
-    // half_uL, half_uR 大小可能是 (nx-2)*ny
-    // 所以对应的一维索引 out_idx = out_j*(nx-2) + out_i
-    // 这里 out_j = j (0 <= j < ny)
-    if (j >= 0 && (i-1) < (nx - 2)) {
-        int out_idx = j*(nx - 2) + (i-1);
+    int out_idx = j*(nx + 2) + (i-1);
         // 写入 half_uL
-        d_half_uL.rho[out_idx] = tempL[0];
-        d_half_uL.vx [out_idx] = tempL[1];
-        d_half_uL.vy [out_idx] = tempL[2];
-        d_half_uL.p  [out_idx] = tempL[3];
-
-        // 写入 half_uR
-        d_half_uR.rho[out_idx] = tempR[0];
-        d_half_uR.vx [out_idx] = tempR[1];
-        d_half_uR.vy [out_idx] = tempR[2];
-        d_half_uR.p  [out_idx] = tempR[3];
-    }
+    d_half_uL.rho[out_idx] = tempL[0];
+    d_half_uL.vx [out_idx] = tempL[1];
+    d_half_uL.vy [out_idx] = tempL[2];
+    d_half_uL.p  [out_idx] = tempL[3];
+    
+    // 写入 half_uR
+    d_half_uR.rho[out_idx] = tempR[0];
+    d_half_uR.vx [out_idx] = tempR[1];
+    d_half_uR.vy [out_idx] = tempR[2];
+    d_half_uR.p  [out_idx] = tempR[3];
 }
 
 void computeHalftime(
@@ -451,8 +450,9 @@ void computeHalftime(
         CUDA_CHECK(cudaMalloc((void**)&(d_half_uR.vx),  (nx+2) * (ny+4) * sizeof(float)));
         CUDA_CHECK(cudaMalloc((void**)&(d_half_uR.vy),  (nx+2) * (ny+4) * sizeof(float)));
         CUDA_CHECK(cudaMalloc((void**)&(d_half_uR.p),   (nx+2) * (ny+4) * sizeof(float)));
+
         dim3 block(16, 16);
-        dim3 grid( (nx+block.x-1)/block.x, (ny+block.y-1)/block.y );
+        dim3 grid( (nx+block.x-1+4)/block.x, (ny+block.y-1+4)/block.y );
         computeHalftimeKernel_x<<<grid, block>>>(
             d_data_con,    
             d_half_uL,     
