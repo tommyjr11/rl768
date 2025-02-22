@@ -3,6 +3,7 @@
 #ifndef DATA_H
 #define DATA_H
 #include <cuda_runtime.h>
+#include "help_function.h"
 #define CUDA_CHECK(call) \
     { \
         cudaError_t err = call; \
@@ -34,15 +35,23 @@ struct solVectors {
     float *p;
 };
 // 在 GPU 上分配/释放
-void allocateDeviceMemory(solVectors &d_data);
-void freeDeviceMemory(solVectors &d_data);
+void allocateDeviceMemory(solVectors &d_data_pri, solVectors &d_data_con);
+void freeDeviceMemory(solVectors &d_data_pri, solVectors &d_data_con);
 // 初始化并复制到 GPU
-void initDataAndCopyToGPU(solVectors &d_data);
+void initDataAndCopyToGPU(solVectors &d_data_pri,solVectors d_data_con);
 // 使用 GPU 计算网格内的最大速度
-float getmaxspeedGPU(const solVectors &d_data, float r);
+float getmaxspeedGPU(const solVectors &d_data_pri, float r);
 // 计算时间步长 = C * min(dx, dy) / maxSpeed
-float getdtGPU(const solVectors &d_data, float r);
+float getdtGPU(const solVectors &d_data_pri, float r);
 // 设置边界条件
 void applyBoundaryConditions(solVectors &d_u);
+// half time 
+void computeHalftime(
+    const solVectors &d_data_con,
+    solVectors &d_half_uL,
+    solVectors &d_half_uR,
+    float dt,
+    int choice
+);
 
 #endif // DATA_H

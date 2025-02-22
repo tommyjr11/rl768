@@ -6,21 +6,87 @@
 
 
 
-void allocateDeviceMemory(solVectors &d_data) {
-    CUDA_CHECK(cudaMalloc((void**)&(d_data.rho), (nx+4) * (ny+4) * sizeof(float)));
-    CUDA_CHECK(cudaMalloc((void**)&(d_data.vx),  (nx+4) * (ny+4) * sizeof(float)));
-    CUDA_CHECK(cudaMalloc((void**)&(d_data.vy),  (nx+4) * (ny+4) * sizeof(float)));
-    CUDA_CHECK(cudaMalloc((void**)&(d_data.p),   (nx+4) * (ny+4) * sizeof(float)));
+void allocateDeviceMemory(solVectors &d_data_pri, solVectors &d_data_con) {
+    CUDA_CHECK(cudaMalloc((void**)&(d_data_pri.rho), (nx+4) * (ny+4) * sizeof(float)));
+    CUDA_CHECK(cudaMalloc((void**)&(d_data_pri.vx),  (nx+4) * (ny+4) * sizeof(float)));
+    CUDA_CHECK(cudaMalloc((void**)&(d_data_pri.vy),  (nx+4) * (ny+4) * sizeof(float)));
+    CUDA_CHECK(cudaMalloc((void**)&(d_data_pri.p),   (nx+4) * (ny+4) * sizeof(float)));
+    CUDA_CHECK(cudaMalloc((void**)&(d_data_con.rho), (nx+4) * (ny+4) * sizeof(float)));
+    CUDA_CHECK(cudaMalloc((void**)&(d_data_con.vx),  (nx+4) * (ny+4) * sizeof(float)));
+    CUDA_CHECK(cudaMalloc((void**)&(d_data_con.vy),  (nx+4) * (ny+4) * sizeof(float)));
+    CUDA_CHECK(cudaMalloc((void**)&(d_data_con.p),   (nx+4) * (ny+4) * sizeof(float)));
 }
 
-void freeDeviceMemory(solVectors &d_data) {
-    CUDA_CHECK(cudaFree(d_data.rho));
-    CUDA_CHECK(cudaFree(d_data.vx));
-    CUDA_CHECK(cudaFree(d_data.vy));
-    CUDA_CHECK(cudaFree(d_data.p));
+void freeDeviceMemory(solVectors &d_data_pri, solVectors &d_data_con) {
+    CUDA_CHECK(cudaFree(d_data_pri.rho));
+    CUDA_CHECK(cudaFree(d_data_pri.vx));
+    CUDA_CHECK(cudaFree(d_data_pri.vy));
+    CUDA_CHECK(cudaFree(d_data_pri.p));
+    CUDA_CHECK(cudaFree(d_data_con.rho));
+    CUDA_CHECK(cudaFree(d_data_con.vx));
+    CUDA_CHECK(cudaFree(d_data_con.vy));
+    CUDA_CHECK(cudaFree(d_data_con.p));
 }
 
-void initDataAndCopyToGPU(solVectors &d_data)
+__device__ void get_con(const float *pri, float *con)
+{
+    con[0] = pri[0];
+    con[1] = pri[0]*pri[1];
+    con[2] = pri[0]*pri[2];
+    con[3] = 0.5*pri[0]*(pow(pri[1],2)+pow(pri[2],2))+pri[3]/(1.4-1);
+}
+
+__device__ void get_pri(const float *con, float *pri)
+{
+    pri[0] = con[0];
+    pri[1] = con[1]/con[0];
+    pri[2] = con[2]/con[0];
+    pri[3] = (1.4-1)*(con[3]-0.5*con[0]*(pow(pri[1],2)+pow(pri[2],2)));
+}
+
+__global__ void kernel_pri2con(const solVectors d_data_pri, solVectors d_data_con, 
+    int nx, int ny)
+{
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    int j = blockIdx.y * blockDim.y + threadIdx.y;
+    if (i < nx+4 && j < ny+4) {
+    int idx = j * (nx+4) + i;
+    float pri[4];
+    pri[0] = d_data_pri.rho[idx];  // rho
+    pri[1] = d_data_pri.vx [idx];  // vx
+    pri[2] = d_data_pri.vy [idx];  // vy
+    pri[3] = d_data_pri.p  [idx];  // p
+    float con[4];
+    get_con(pri,con);
+    d_data_con.rho[idx] = con[0];  // rho
+    d_data_con.vx [idx] = con[1];  // rho*vx
+    d_data_con.vy [idx] = con[2];  // rho*vy
+    d_data_con.p  [idx] = con[3];  // E (总能量)
+    }
+}
+
+__global__ void kernel_con2pri(const solVectors d_data_con, solVectors d_data_pri, 
+    int nx, int ny)
+{
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    int j = blockIdx.y * blockDim.y + threadIdx.y;
+    if (i < nx+4 && j < ny+4) {
+    int idx = j * (nx+4) + i;
+    float con[4];
+    con[0] = d_data_con.rho[idx];  // rho
+    con[1] = d_data_con.vx [idx];  // rho*vx
+    con[2] = d_data_con.vy [idx];  // rho*vy
+    con[3] = d_data_con.p  [idx];  // E (总能量)
+    float pri[4];
+    get_pri(con,pri);
+    d_data_pri.rho[idx] = pri[0];  // rho
+    d_data_pri.vx [idx] = pri[1];  // vx
+    d_data_pri.vy [idx] = pri[2];  // vy
+    d_data_pri.p  [idx] = pri[3];  // p
+    }
+}
+
+void initDataAndCopyToGPU(solVectors &d_data_pri,solVectors d_data_con)
 {
     std::vector<float> h_rho((nx+4) * (ny+4), 0.0f);
     std::vector<float> h_vx ((nx+4) * (ny+4), 0.0f);
@@ -67,10 +133,15 @@ void initDataAndCopyToGPU(solVectors &d_data)
 
     // 拷贝到 GPU
     size_t sizeBytes = (nx+4) * (ny+4) * sizeof(float);
-    CUDA_CHECK(cudaMemcpy(d_data.rho, h_rho.data(), sizeBytes, cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaMemcpy(d_data.vx,  h_vx.data(),  sizeBytes, cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaMemcpy(d_data.vy,  h_vy.data(),  sizeBytes, cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaMemcpy(d_data.p,   h_p.data(),   sizeBytes, cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_data_pri.rho, h_rho.data(), sizeBytes, cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_data_pri.vx,  h_vx.data(),  sizeBytes, cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_data_pri.vy,  h_vy.data(),  sizeBytes, cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_data_pri.p,   h_p.data(),   sizeBytes, cudaMemcpyHostToDevice));
+    // 将 d_data_pri 的数据拷贝到 d_data_con
+    dim3 blockSize(16, 16);
+    dim3 gridSize((nx+4+15)/16, (ny+4+15)/16);
+    kernel_pri2con<<<gridSize, blockSize>>>(d_data_pri, d_data_con, nx, ny);
+    cudaDeviceSynchronize();
 }
 
 __global__ void getMaxSpeedKernel(
@@ -123,7 +194,7 @@ __global__ void getMaxSpeedKernel(
 }
 
 
-float getmaxspeedGPU(const solVectors &d_data, float r)
+float getmaxspeedGPU(const solVectors &d_data_pri, float r)
 {
     // 这里简化一下，直接把 totalSize = (nx+4)*(ny+4)
     int totalSize = (nx+4) * (ny+4);
@@ -137,10 +208,10 @@ float getmaxspeedGPU(const solVectors &d_data, float r)
     int sharedMemSize = blockSize * sizeof(float);
     
     getMaxSpeedKernel<<<gridSize, blockSize, sharedMemSize>>>(
-        d_data.rho,
-        d_data.vx,
-        d_data.vy,
-        d_data.p,
+        d_data_pri.rho,
+        d_data_pri.vx,
+        d_data_pri.vy,
+        d_data_pri.p,
         d_blockMax,
         totalSize,
         r
@@ -163,9 +234,9 @@ float getmaxspeedGPU(const solVectors &d_data, float r)
     return maxSpeed;
 }
 
-float getdtGPU(const solVectors &d_data, float r)
+float getdtGPU(const solVectors &d_data_pri, float r)
 {
-    float maxSpeed = getmaxspeedGPU(d_data, r);
+    float maxSpeed = getmaxspeedGPU(d_data_pri, r);
     if (maxSpeed < 1e-15f) {
         return 1.0e10f; // 给一个很大的dt
     }
@@ -239,3 +310,162 @@ void applyBoundaryConditions(solVectors &d_u) {
     // 等待内核执行完成
     cudaDeviceSynchronize();
 }
+
+
+
+__device__ float limiterL2(float smaller, float larger) {
+    if (larger == 0.0)
+        return (smaller == 0.0) ? 0.0 : 1.0;
+    float R = smaller / larger;
+    return fminf(fmaxf(R, 0.0), 1.0);
+}
+
+__device__ float limiterR2(float smaller, float larger) {
+    if (larger == 0.0)
+        return 0.0;
+        float R = smaller / larger;
+    return (R <= 0.0) ? 0.0 : ((R <= 1.0) ? R : fmin(1.0, 2.0/(1.0+R)));
+}
+
+__device__ void get_flux_x(const float *pri, float *flux) {
+    flux[0] = pri[0]*pri[1];
+    flux[1] = pri[0]*pri[1]*pri[1] + pri[3];
+    flux[2] = pri[0]*pri[1]*pri[2];
+    float Energy = 0.5*pri[0]*(pri[1]*pri[1] + pri[2]*pri[2]) + pri[3]/(1.4-1.0);
+    flux[3] = pri[1]*(pri[3] + Energy);
+}
+
+__device__ void get_flux_y(const float *pri, float *flux) {
+    flux[0] = pri[0]*pri[2];
+    flux[1] = pri[0]*pri[1]*pri[2];
+    flux[2] = pri[0]*pri[2]*pri[2] + pri[3];
+    float Energy = 0.5*pri[0]*(pri[1]*pri[1] + pri[2]*pri[2]) + pri[3]/(1.4-1.0);
+    flux[3] = pri[2]*(pri[3] + Energy);
+}
+
+__global__ void computeHalftimeKernel_x(
+    const solVectors &d_data_con,
+    solVectors d_half_uL,
+    solVectors d_half_uR, 
+    float dt,
+    float dx,
+    int nx, int ny
+)
+{
+    int i = blockIdx.x * blockDim.x + threadIdx.x + 1;
+    int j = blockIdx.y * blockDim.y + threadIdx.y;
+    if (i >= (nx+3) || j >= (ny+4)) {
+        return;
+    }
+    int stride = (nx + 4);
+    int idx      = j*stride + i;
+    int idx_left = j*stride + (i - 1);
+    int idx_right= j*stride + (i + 1);
+
+    // --- Step 1: 读取 con(i,j), con(i-1,j), con(i+1,j) ---
+    float conM[4];  // con(i,j)
+    float conL[4];  // con(i-1,j)
+    float conR[4];  // con(i+1,j)
+    conM[0] = d_data_con.rho[idx];
+    conM[1] = d_data_con.vx [idx];  // 这里 vx 里实际存的是 rho*u
+    conM[2] = d_data_con.vy [idx];  // 这里 vy 里实际存的是 rho*v
+    conM[3] = d_data_con.p  [idx];  // E (总能量)
+
+    conL[0] = d_data_con.rho[idx_left];
+    conL[1] = d_data_con.vx [idx_left];
+    conL[2] = d_data_con.vy [idx_left];
+    conL[3] = d_data_con.p  [idx_left];
+
+    conR[0] = d_data_con.rho[idx_right];
+    conR[1] = d_data_con.vx [idx_right];
+    conR[2] = d_data_con.vy [idx_right];
+    conR[3] = d_data_con.p  [idx_right];
+
+    // --- Step 2: 斜率限制，得到 tempL, tempR (仍在保守量空间) ---
+    float tempL[4], tempR[4];
+    for (int k = 0; k < 4; k++) {
+        float temp1 = conM[k] - conL[k];  // i - (i-1)
+        float temp2 = conR[k] - conM[k];  // (i+1) - i
+        float di = 0.5f * (temp1 + temp2);
+
+        // 这里分别调用 limiterL2 / limiterR2：
+        float phiL = limiterL2(temp1, temp2);
+        float phiR = limiterR2(temp1, temp2);
+
+        // 得到左右临时状态
+        tempL[k] = conM[k] - 0.5f * di * phiL;
+        tempR[k] = conM[k] + 0.5f * di * phiR;
+    }
+    // --- Step 3: 将 tempL, tempR 转为原始量 priL, priR，并计算通量 fluxL, fluxR ---
+    float priL[4], priR[4];
+    get_pri(tempL, priL);
+    get_pri(tempR, priR);
+
+    float fluxL[4], fluxR[4];
+    get_flux_x(priL, fluxL);
+    get_flux_x(priR, fluxR);
+
+    // --- Step 4: 半步更新 (回到保守量空间) ---
+    // tempL, tempR 各减去 0.5*(dt/dx)*(fluxR - fluxL)
+    for (int k = 0; k < 4; k++) {
+        float delta = 0.5f * (dt / dx) * (fluxR[k] - fluxL[k]);
+        tempL[k] = tempL[k] - delta;
+        tempR[k] = tempR[k] - delta;
+    }
+
+    // --- Step 5: 把结果存到 half_uL, half_uR 里 ---
+    // half_uL, half_uR 大小可能是 (nx-2)*ny
+    // 所以对应的一维索引 out_idx = out_j*(nx-2) + out_i
+    // 这里 out_j = j (0 <= j < ny)
+    if (j >= 0 && (i-1) < (nx - 2)) {
+        int out_idx = j*(nx - 2) + (i-1);
+        // 写入 half_uL
+        d_half_uL.rho[out_idx] = tempL[0];
+        d_half_uL.vx [out_idx] = tempL[1];
+        d_half_uL.vy [out_idx] = tempL[2];
+        d_half_uL.p  [out_idx] = tempL[3];
+
+        // 写入 half_uR
+        d_half_uR.rho[out_idx] = tempR[0];
+        d_half_uR.vx [out_idx] = tempR[1];
+        d_half_uR.vy [out_idx] = tempR[2];
+        d_half_uR.p  [out_idx] = tempR[3];
+    }
+}
+
+void computeHalftime(
+    const solVectors &d_data_con,
+    solVectors &d_half_uL,
+    solVectors &d_half_uR,
+    float dt,
+    int choice
+)
+{
+    if (choice == 1)
+    {
+        CUDA_CHECK(cudaMalloc((void**)&(d_half_uL.rho), (nx+2) * (ny+4) * sizeof(float)));
+        CUDA_CHECK(cudaMalloc((void**)&(d_half_uL.vx),  (nx+2) * (ny+4) * sizeof(float)));
+        CUDA_CHECK(cudaMalloc((void**)&(d_half_uL.vy),  (nx+2) * (ny+4) * sizeof(float)));
+        CUDA_CHECK(cudaMalloc((void**)&(d_half_uL.p),   (nx+2) * (ny+4) * sizeof(float)));
+        CUDA_CHECK(cudaMalloc((void**)&(d_half_uR.rho), (nx+2) * (ny+4) * sizeof(float)));
+        CUDA_CHECK(cudaMalloc((void**)&(d_half_uR.vx),  (nx+2) * (ny+4) * sizeof(float)));
+        CUDA_CHECK(cudaMalloc((void**)&(d_half_uR.vy),  (nx+2) * (ny+4) * sizeof(float)));
+        CUDA_CHECK(cudaMalloc((void**)&(d_half_uR.p),   (nx+2) * (ny+4) * sizeof(float)));
+        dim3 block(16, 16);
+        dim3 grid( (nx+block.x-1)/block.x, (ny+block.y-1)/block.y );
+        computeHalftimeKernel_x<<<grid, block>>>(
+            d_data_con,    
+            d_half_uL,     
+            d_half_uR,     
+            dt, dx, 
+            nx, ny
+        );
+        cudaDeviceSynchronize();
+        cudaError_t err = cudaGetLastError();
+        if (err != cudaSuccess) {
+            std::cerr << "CUDA kernel launch failed: " << cudaGetErrorString(err) << std::endl;
+            exit(-1);
+        }
+    }
+}
+

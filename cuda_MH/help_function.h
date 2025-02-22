@@ -1,5 +1,5 @@
-#ifndef SLIC_H
-#define SLIC_H
+#ifndef HELP_FUNCTION_H
+#define HELP_FUNCTION_H
 #include <cuda_runtime.h>
 #define CUDA_CHECK(call) \
 { \
@@ -10,17 +10,6 @@
             exit(-1); \
         } \
 }
-
-void compute_halftime_ULR_GPU(
-    const double *d_old_u, // GPU 上的 old_u 数组
-    double *d_half_uL,
-    double *d_half_uR,
-    int nx, int ny,
-    double dt, double dx, double dy,
-    int choice,
-    double w,
-    double r
-);
 
 
 
