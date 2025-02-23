@@ -316,8 +316,6 @@ void applyBoundaryConditions(solVectors &d_u) {
         }
 }
 
-
-
 __device__ float limiterL2(float smaller, float larger) {
     if (larger == 0.0)
         return (smaller == 0.0) ? 0.0 : 1.0;
@@ -469,3 +467,168 @@ void computeHalftime(
     }
 }
 
+// ---------------------- GPU 内核：计算 x 方向 SLIC flux ----------------------
+__global__ void computeSLICFluxKernel_x(
+    const solVectors d_half_uL,  // 左侧半步状态，尺寸： (nx+2) x (ny+4)
+    const solVectors d_half_uR,  // 右侧半步状态，同上
+    solVectors d_SLIC_flux,      // 输出 SLIC flux，尺寸： (nx-3) x ny
+    float dt,
+    float dx,
+    int nx,  int ny
+)
+{
+    // 设定输出 SLIC flux 的二维域：
+    // i_flux 范围： 0 <= i < (nx - 3)
+    // j_flux 范围： 0 <= j < ny
+    int i_flux = blockIdx.x * blockDim.x + threadIdx.x;
+    int j_flux = blockIdx.y * blockDim.y + threadIdx.y;
+    if (i_flux >= (nx + 1) || j_flux >= ny + 4)
+        return;
+    int half_width = nx + 2;  // 水平步长
+    int index_L = j_flux * half_width + (i_flux + 1);  // d_half_uL 对应元素
+    int index_R = j_flux * half_width + (i_flux);      // d_half_uR 对应元素
+    int flux_idx  = j_flux * (nx+1) + i_flux;          // 输出 SLIC flux 的线性索引
+    // 读取半步状态（保守量格式）：每个状态有4个分量
+    float consL[4], consR[4];
+    consL[0] = d_half_uL.rho[index_L];
+    consL[1] = d_half_uL.vx[index_L];
+    consL[2] = d_half_uL.vy[index_L];
+    consL[3] = d_half_uL.p[index_L];
+
+    consR[0] = d_half_uR.rho[index_R];
+    consR[1] = d_half_uR.vx[index_R];
+    consR[2] = d_half_uR.vy[index_R];
+    consR[3] = d_half_uR.p[index_R];
+
+    // ---------------- Step 1: 转换为原始量，并计算 x 方向通量 ----------------
+    float priL[4], priR[4];
+    get_pri(consL, priL);
+    get_pri(consR, priR);
+
+    float fluxL[4], fluxR[4];
+    get_flux_x(priL, fluxL);
+    get_flux_x(priR, fluxR);
+
+    // ---------------- Step 2: 计算 LF 与 RI_U ----------------
+    float LF[4], RI_U[4];
+    for (int k = 0; k < 4; k++) {
+        LF[k]   = 0.5f * (fluxL[k] + fluxR[k]) + 0.5f * (dx / dt) * (consR[k] - consL[k]);
+        RI_U[k] = 0.5f * (consL[k] + consR[k]) - 0.5f * (dt / dx) * (fluxL[k] - fluxR[k]);
+    }
+
+    // ---------------- Step 3: 计算 RI 通量 ----------------
+    float pri_RI[4], RI[4];
+    get_pri(RI_U, pri_RI);
+    get_flux_x(pri_RI, RI);
+    // ---------------- Step 4: 计算最终 SLIC flux = 0.5*(LF + RI) ----------------
+    float slic_flux[4];
+    for (int k = 0; k < 4; k++) {
+        slic_flux[k] = 0.5f * (LF[k] + RI[k]);
+    }
+    d_SLIC_flux.rho[flux_idx] = slic_flux[0];
+    d_SLIC_flux.vx [flux_idx] = slic_flux[1];
+    d_SLIC_flux.vy [flux_idx] = slic_flux[2];
+    d_SLIC_flux.p  [flux_idx] = slic_flux[3];
+}
+
+void computeSLICFlux(
+    const solVectors &d_half_uL,
+    const solVectors &d_half_uR,
+    solVectors &d_SLIC_flux,  // 输出：SLIC flux
+    float dt,
+    int choice 
+)
+{
+    if (choice == 1)
+    {
+        // 为 SLIC flux 分配设备内存，尺寸：(nx-3) x ny
+        CUDA_CHECK(cudaMalloc((void**)&(d_SLIC_flux.rho), (nx + 1) * (ny+4) * sizeof(float)));
+        CUDA_CHECK(cudaMalloc((void**)&(d_SLIC_flux.vx),  (nx + 1) * (ny+4) * sizeof(float)));
+        CUDA_CHECK(cudaMalloc((void**)&(d_SLIC_flux.vy),  (nx + 1) * (ny+4) * sizeof(float)));
+        CUDA_CHECK(cudaMalloc((void**)&(d_SLIC_flux.p),   (nx + 1) * (ny+4) * sizeof(float)));
+
+        dim3 block(16, 16);
+        dim3 grid( ((nx + 1) + block.x - 1) / block.x, (ny + 4 + block.y - 1) / block.y );
+        computeSLICFluxKernel_x<<<grid, block>>>(
+            d_half_uL,
+            d_half_uR,
+            d_SLIC_flux,
+            dt,
+            dx,
+            nx,
+            ny
+        );
+        cudaDeviceSynchronize();
+        cudaError_t err = cudaGetLastError();
+        if (err != cudaSuccess) {
+            std::cerr << "CUDA kernel launch failed for computeSLICFluxKernel_x: " 
+                      << cudaGetErrorString(err) << std::endl;
+            exit(-1);
+        }
+    }
+}
+
+__global__ void updateKernel_x(
+    solVectors d_data_con,           // 待更新的状态，尺寸为 (nx+4) x (ny+4)
+    const solVectors d_SLIC_flux, // SLIC flux 数组，尺寸为 (nx-3) x ny
+    float dt,
+    float dx,
+    int nx,                     // 原问题的网格数（不含 ghost），例如 CPU 中 old_u.size() 的横向部分
+    int ny
+){
+    int i_upd = blockIdx.x * blockDim.x + threadIdx.x;
+    int j     = blockIdx.y * blockDim.y + threadIdx.y;
+    if (i_upd >= nx || j >= (ny+4))
+        return;
+    int stride_old = nx + 4;
+    int idx = j * stride_old + (i_upd + 2);
+
+    int stride_flux = nx + 1;
+    int flux_idx1 = j * stride_flux + i_upd;
+    int flux_idx2 = j * stride_flux + (i_upd + 1);
+
+    d_data_con.rho[idx] = d_data_con.rho[idx] - (dt/dx) * (d_SLIC_flux.rho[flux_idx2] - d_SLIC_flux.rho[flux_idx1]);
+    d_data_con.vx[idx]  = d_data_con.vx[idx]  - (dt/dx) * (d_SLIC_flux.vx[flux_idx2]  - d_SLIC_flux.vx[flux_idx1]);
+    d_data_con.vy[idx]  = d_data_con.vy[idx]  - (dt/dx) * (d_SLIC_flux.vy[flux_idx2]  - d_SLIC_flux.vy[flux_idx1]);
+    d_data_con.p[idx]   = d_data_con.p[idx]   - (dt/dx) * (d_SLIC_flux.p[flux_idx2]   - d_SLIC_flux.p[flux_idx1]);
+}
+
+
+void updateSolution(
+    solVectors &d_data_con,
+    const solVectors &d_SLIC_flux,
+    float dt,
+    int choice
+)
+{
+    if (choice == 1)
+    {
+    dim3 block(16, 16);
+    dim3 grid( (nx + block.x - 1) / block.x,
+               (ny + 4 + block.y - 1) / block.y );
+    updateKernel_x<<<grid, block>>>(d_data_con, d_SLIC_flux, dt, dx, nx, ny);
+    cudaDeviceSynchronize();
+    cudaError_t err = cudaGetLastError();
+    if (err != cudaSuccess) {
+        std::cerr << "CUDA kernel launch failed in updateKernel_x: " 
+                  << cudaGetErrorString(err) << std::endl;
+        exit(-1);
+    }
+}
+}
+
+
+void freeDeviceMemory2(solVectors &d_half_uL, solVectors &d_half_uR, solVectors &d_SLIC_flux) {
+    CUDA_CHECK(cudaFree(d_half_uL.rho));
+    CUDA_CHECK(cudaFree(d_half_uL.vx));
+    CUDA_CHECK(cudaFree(d_half_uL.vy));
+    CUDA_CHECK(cudaFree(d_half_uL.p));
+    CUDA_CHECK(cudaFree(d_half_uR.rho));
+    CUDA_CHECK(cudaFree(d_half_uR.vx));
+    CUDA_CHECK(cudaFree(d_half_uR.vy));
+    CUDA_CHECK(cudaFree(d_half_uR.p));
+    CUDA_CHECK(cudaFree(d_SLIC_flux.rho));
+    CUDA_CHECK(cudaFree(d_SLIC_flux.vx));
+    CUDA_CHECK(cudaFree(d_SLIC_flux.vy));
+    CUDA_CHECK(cudaFree(d_SLIC_flux.p));
+}

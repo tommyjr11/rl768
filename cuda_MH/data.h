@@ -53,5 +53,18 @@ void computeHalftime(
     float dt,
     int choice
 );
-
+void computeSLICFlux(
+    const solVectors &d_half_uL,
+    const solVectors &d_half_uR,
+    solVectors &d_SLIC_flux, 
+    float dt,
+    int choice 
+);
+void updateSolution(
+    solVectors &d_data_con,
+    const solVectors &d_SLIC_flux,
+    float dt,
+    int choice
+);
+void freeDeviceMemory2(solVectors &d_half_uL, solVectors &d_half_uR, solVectors &d_SLIC_flux);
 #endif // DATA_H
