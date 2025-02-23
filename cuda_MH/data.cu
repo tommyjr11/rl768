@@ -3,9 +3,11 @@
 #include <iostream>
 #include <vector>
 #include <cmath>       
-
-
-
+#include <filesystem>
+#include <fstream>
+#include <string>
+#include <sstream>
+#include <iomanip>
 void allocateDeviceMemory(solVectors &d_data_pri, solVectors &d_data_con) {
     CUDA_CHECK(cudaMalloc((void**)&(d_data_pri.rho), (nx+4) * (ny+4) * sizeof(float)));
     CUDA_CHECK(cudaMalloc((void**)&(d_data_pri.vx),  (nx+4) * (ny+4) * sizeof(float)));
@@ -196,17 +198,12 @@ __global__ void getMaxSpeedKernel(
 
 float getmaxspeedGPU(const solVectors &d_data_pri, float r)
 {
-    // 这里简化一下，直接把 totalSize = (nx+4)*(ny+4)
     int totalSize = (nx+4) * (ny+4);
-
     int blockSize = 64;
     int gridSize  = (totalSize + blockSize - 1) / blockSize;
-
     float *d_blockMax = nullptr;
     CUDA_CHECK(cudaMalloc(&d_blockMax, gridSize * sizeof(float)));
-
     int sharedMemSize = blockSize * sizeof(float);
-    
     getMaxSpeedKernel<<<gridSize, blockSize, sharedMemSize>>>(
         d_data_pri.rho,
         d_data_pri.vx,
@@ -317,17 +314,51 @@ void applyBoundaryConditions(solVectors &d_u) {
 }
 
 __device__ float limiterL2(float smaller, float larger) {
-    if (larger == 0.0)
-        return (smaller == 0.0) ? 0.0 : 1.0;
-    float R = smaller / larger;
-    return fminf(fmaxf(R, 0.0), 1.0);
+    float R_slope = 0.0;
+    if (smaller == 0 && larger == 0){
+        R_slope = 0.0;
+    }
+    else if (larger == 0 && smaller != 0){
+        return 1.0;
+    }
+    else{
+        R_slope = smaller/larger;
+    }
+    if (R_slope <= 0){
+        return 0.0;
+    }
+    else if (R_slope <= 1){
+        return R_slope;
+    }
+    else {
+        float temp2 = 2*R_slope/(1+R_slope);
+        return fminf(1.0, temp2);
+        }  
 }
 
 __device__ float limiterR2(float smaller, float larger) {
-    if (larger == 0.0)
+    float R_slope = 0.0;
+    if (smaller == 0 && larger == 0){
+        R_slope = 0.0;
+    }
+    else if (larger == 0 && smaller != 0){
         return 0.0;
-        float R = smaller / larger;
-    return (R <= 0.0) ? 0.0 : ((R <= 1.0) ? R : fmin(1.0, 2.0/(1.0+R)));
+    }
+    else{
+        R_slope = smaller/larger;
+        }
+    if (R_slope <= 0){
+        return 0.0;
+    }
+    else if (R_slope <= 1)
+    {
+        return R_slope;
+    }
+    else 
+    {
+        float temp2 = 2/(1+R_slope);
+        return fminf(1.0, temp2);
+    }
 }
 
 __device__ void get_flux_x(const float *pri, float *flux) {
@@ -430,6 +461,91 @@ __global__ void computeHalftimeKernel_x(
     d_half_uR.p  [out_idx] = tempR[3];
 }
 
+__global__ void computeHalftimeKernel_y(
+    const solVectors d_data_con,
+    solVectors d_half_uL,
+    solVectors d_half_uR, 
+    float dt,
+    float dx,
+    int nx, int ny
+)
+{
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    int j = blockIdx.y * blockDim.y + threadIdx.y + 1;
+    if (i >= (nx+4) || j >= (ny+3)) {
+        return;
+    }
+    int stride = (nx + 4);
+    int idx      = j*stride + i;
+    int idx_left = (j - 1)*stride + i;
+    int idx_right= (j + 1)*stride + i;
+    
+    // --- Step 1: 读取 co  n(i,j), con(i-1,j), con(i+1,j) ---
+    float conM[4];  // con(i,j)
+    float conL[4];  // con(i-1,j)
+    float conR[4];  // con(i+1,j)
+    conM[0] = d_data_con.rho[idx];
+    conM[1] = d_data_con.vx [idx];  // 这里 vx 里实际存的是 rho*u
+    conM[2] = d_data_con.vy [idx];  // 这里 vy 里实际存的是 rho*v
+    conM[3] = d_data_con.p  [idx];  // E (总能量)
+
+    conL[0] = d_data_con.rho[idx_left];
+    conL[1] = d_data_con.vx [idx_left];
+    conL[2] = d_data_con.vy [idx_left];
+    conL[3] = d_data_con.p  [idx_left];
+
+    conR[0] = d_data_con.rho[idx_right];
+    conR[1] = d_data_con.vx [idx_right];
+    conR[2] = d_data_con.vy [idx_right];
+    conR[3] = d_data_con.p  [idx_right];
+    // --- Step 2: 斜率限制，得到 tempL, tempR (仍在保守量空间) ---
+    float tempL[4], tempR[4];
+    for (int k = 0; k < 4; k++) {
+        float temp1 = conM[k] - conL[k];  // i - (i-1)
+        float temp2 = conR[k] - conM[k];  // (i+1) - i
+        float di = 0.5f * (temp1 + temp2);
+
+        // 这里分别调用 limiterL2 / limiterR2：
+        float phiL = limiterL2(temp1, temp2);
+        float phiR = limiterR2(temp1, temp2);
+
+        // 得到左右临时状态
+        tempL[k] = conM[k] - 0.5f * di * phiL;
+        tempR[k] = conM[k] + 0.5f * di * phiR;
+    }
+    // --- Step 3: 将 tempL, tempR 转为原始量 priL, priR，并计算通量 fluxL, fluxR ---
+    float priL[4], priR[4];
+    get_pri(tempL, priL);
+    get_pri(tempR, priR);
+
+    float fluxL[4], fluxR[4];
+    get_flux_y(priL, fluxL);
+    get_flux_y(priR, fluxR);
+    
+    // --- Step 4: 半步更新 (回到保守量空间) ---
+    // tempL, tempR 各减去 0.5*(dt/dx)*(fluxR - fluxL)
+    for (int k = 0; k < 4; k++) {
+        float delta = 0.5f * (dt / dx) * (fluxR[k] - fluxL[k]);
+        tempL[k] = tempL[k] - delta;
+        tempR[k] = tempR[k] - delta;
+    }
+
+    // --- Step 5: 把结果存到 half_uL, half_uR 里 ---
+    int out_idx = (j-1)*(nx + 4) + i;
+        // 写入 half_uL
+    d_half_uL.rho[out_idx] = tempL[0];
+    d_half_uL.vx [out_idx] = tempL[1];
+    d_half_uL.vy [out_idx] = tempL[2];
+    d_half_uL.p  [out_idx] = tempL[3];
+    
+    // 写入 half_uR
+    d_half_uR.rho[out_idx] = tempR[0];
+    d_half_uR.vx [out_idx] = tempR[1];
+    d_half_uR.vy [out_idx] = tempR[2];
+    d_half_uR.p  [out_idx] = tempR[3];
+}
+
+
 void computeHalftime(
     const solVectors &d_data_con,
     solVectors &d_half_uL,
@@ -464,6 +580,33 @@ void computeHalftime(
             std::cerr << "CUDA kernel launch failed: " << cudaGetErrorString(err) << std::endl;
             exit(-1);
         }
+    }
+    else{
+        CUDA_CHECK(cudaMalloc((void**)&(d_half_uL.rho), (nx+4) * (ny+2) * sizeof(float)));
+        CUDA_CHECK(cudaMalloc((void**)&(d_half_uL.vx),  (nx+4) * (ny+2) * sizeof(float)));
+        CUDA_CHECK(cudaMalloc((void**)&(d_half_uL.vy),  (nx+4) * (ny+2) * sizeof(float)));
+        CUDA_CHECK(cudaMalloc((void**)&(d_half_uL.p),   (nx+4) * (ny+2) * sizeof(float)));
+        CUDA_CHECK(cudaMalloc((void**)&(d_half_uR.rho), (nx+4) * (ny+2) * sizeof(float)));
+        CUDA_CHECK(cudaMalloc((void**)&(d_half_uR.vx),  (nx+4) * (ny+2) * sizeof(float)));
+        CUDA_CHECK(cudaMalloc((void**)&(d_half_uR.vy),  (nx+4) * (ny+2) * sizeof(float)));
+        CUDA_CHECK(cudaMalloc((void**)&(d_half_uR.p),   (nx+4) * (ny+2) * sizeof(float)));
+
+        dim3 block(16, 16);
+        dim3 grid( (nx+block.x-1+4)/block.x, (ny+block.y-1+4)/block.y );
+        computeHalftimeKernel_y<<<grid, block>>>(
+            d_data_con,    
+            d_half_uL,     
+            d_half_uR,     
+            dt, dx, 
+            nx, ny
+        );
+        cudaDeviceSynchronize();
+        cudaError_t err = cudaGetLastError();
+        if (err != cudaSuccess) {
+            std::cerr << "CUDA kernel launch failed: " << cudaGetErrorString(err) << std::endl;
+            exit(-1);
+        }
+
     }
 }
 
@@ -531,6 +674,70 @@ __global__ void computeSLICFluxKernel_x(
     d_SLIC_flux.p  [flux_idx] = slic_flux[3];
 }
 
+__global__ void computeSLICFluxKernel_y(
+    const solVectors d_half_uL,  // 左侧半步状态，尺寸： (nx+2) x (ny+4)
+    const solVectors d_half_uR,  // 右侧半步状态，同上
+    solVectors d_SLIC_flux,      // 输出 SLIC flux，尺寸： (nx-3) x ny
+    float dt,
+    float dx,
+    int nx,  int ny
+)
+{
+    // 设定输出 SLIC flux 的二维域：
+    // i_flux 范围： 0 <= i < (nx - 3)
+    // j_flux 范围： 0 <= j < ny
+    int i_flux = blockIdx.x * blockDim.x + threadIdx.x;
+    int j_flux = blockIdx.y * blockDim.y + threadIdx.y;
+    if (i_flux >= (nx + 4) || j_flux >= ny + 1)
+        return;
+    int half_width = nx + 4;  // 水平步长
+    int index_L = (j_flux + 1) * half_width + i_flux;  // d_half_uL 对应元素
+    int index_R = j_flux * half_width + i_flux;      // d_half_uR 对应元素
+    int flux_idx  = j_flux * half_width + i_flux;          // 输出 SLIC flux 的线性索引
+    // 读取半步状态（保守量格式）：每个状态有4个分量
+    float consL[4], consR[4];
+    consL[0] = d_half_uL.rho[index_L];
+    consL[1] = d_half_uL.vx[index_L];
+    consL[2] = d_half_uL.vy[index_L];
+    consL[3] = d_half_uL.p[index_L];
+
+    consR[0] = d_half_uR.rho[index_R];
+    consR[1] = d_half_uR.vx[index_R];
+    consR[2] = d_half_uR.vy[index_R];
+    consR[3] = d_half_uR.p[index_R];
+
+    // ---------------- Step 1: 转换为原始量，并计算 x 方向通量 ----------------
+    float priL[4], priR[4];
+    get_pri(consL, priL);
+    get_pri(consR, priR);
+
+    float fluxL[4], fluxR[4];
+    get_flux_y(priL, fluxL);
+    get_flux_y(priR, fluxR);
+
+    // ---------------- Step 2: 计算 LF 与 RI_U ----------------
+    float LF[4], RI_U[4];
+    for (int k = 0; k < 4; k++) {
+        LF[k]   = 0.5f * (fluxL[k] + fluxR[k]) + 0.5f * (dx / dt) * (consR[k] - consL[k]);
+        RI_U[k] = 0.5f * (consL[k] + consR[k]) - 0.5f * (dt / dx) * (fluxL[k] - fluxR[k]);
+    }
+
+    // ---------------- Step 3: 计算 RI 通量 ----------------
+    float pri_RI[4], RI[4];
+    get_pri(RI_U, pri_RI);
+    get_flux_x(pri_RI, RI);
+    // ---------------- Step 4: 计算最终 SLIC flux = 0.5*(LF + RI) ----------------
+    float slic_flux[4];
+    for (int k = 0; k < 4; k++) {
+        slic_flux[k] = 0.5f * (LF[k] + RI[k]);
+    }
+    d_SLIC_flux.rho[flux_idx] = slic_flux[0];
+    d_SLIC_flux.vx [flux_idx] = slic_flux[1];
+    d_SLIC_flux.vy [flux_idx] = slic_flux[2];
+    d_SLIC_flux.p  [flux_idx] = slic_flux[3];
+}
+
+
 void computeSLICFlux(
     const solVectors &d_half_uL,
     const solVectors &d_half_uR,
@@ -550,6 +757,32 @@ void computeSLICFlux(
         dim3 block(16, 16);
         dim3 grid( ((nx + 1) + block.x - 1) / block.x, (ny + 4 + block.y - 1) / block.y );
         computeSLICFluxKernel_x<<<grid, block>>>(
+            d_half_uL,
+            d_half_uR,
+            d_SLIC_flux,
+            dt,
+            dx,
+            nx,
+            ny
+        );
+        cudaDeviceSynchronize();
+        cudaError_t err = cudaGetLastError();
+        if (err != cudaSuccess) {
+            std::cerr << "CUDA kernel launch failed for computeSLICFluxKernel_x: " 
+                      << cudaGetErrorString(err) << std::endl;
+            exit(-1);
+        }
+    }
+    else{
+        // 为 SLIC flux 分配设备内存，尺寸：(nx-3) x ny
+        CUDA_CHECK(cudaMalloc((void**)&(d_SLIC_flux.rho), (nx + 4) * (ny+1) * sizeof(float)));
+        CUDA_CHECK(cudaMalloc((void**)&(d_SLIC_flux.vx),  (nx + 4) * (ny+1) * sizeof(float)));
+        CUDA_CHECK(cudaMalloc((void**)&(d_SLIC_flux.vy),  (nx + 4) * (ny+1) * sizeof(float)));
+        CUDA_CHECK(cudaMalloc((void**)&(d_SLIC_flux.p),   (nx + 4) * (ny+1) * sizeof(float)));
+
+        dim3 block(16, 16);
+        dim3 grid( ((nx + 4) + block.x - 1) / block.x, (ny + 1 + block.y - 1) / block.y );
+        computeSLICFluxKernel_y<<<grid, block>>>(
             d_half_uL,
             d_half_uR,
             d_SLIC_flux,
@@ -593,6 +826,31 @@ __global__ void updateKernel_x(
     d_data_con.p[idx]   = d_data_con.p[idx]   - (dt/dx) * (d_SLIC_flux.p[flux_idx2]   - d_SLIC_flux.p[flux_idx1]);
 }
 
+__global__ void updateKernel_y(
+    solVectors d_data_con,           // 待更新的状态，尺寸为 (nx+4) x (ny+4)
+    const solVectors d_SLIC_flux, // SLIC flux 数组，尺寸为 (nx-3) x ny
+    float dt,
+    float dx,
+    int nx,                     // 原问题的网格数（不含 ghost），例如 CPU 中 old_u.size() 的横向部分
+    int ny
+){
+    int i_upd = blockIdx.x * blockDim.x + threadIdx.x;
+    int j     = blockIdx.y * blockDim.y + threadIdx.y;
+    if (i_upd >= nx + 4 || j >= ny)
+        return;
+    int stride_old = nx + 4;
+    int idx = (j + 2) * stride_old + i_upd;
+
+    
+    int flux_idx1 = j * stride_old + i_upd;
+    int flux_idx2 = (j + 1) * stride_old + i_upd;
+
+    d_data_con.rho[idx] = d_data_con.rho[idx] - (dt/dx) * (d_SLIC_flux.rho[flux_idx2] - d_SLIC_flux.rho[flux_idx1]);
+    d_data_con.vx[idx]  = d_data_con.vx[idx]  - (dt/dx) * (d_SLIC_flux.vx[flux_idx2]  - d_SLIC_flux.vx[flux_idx1]);
+    d_data_con.vy[idx]  = d_data_con.vy[idx]  - (dt/dx) * (d_SLIC_flux.vy[flux_idx2]  - d_SLIC_flux.vy[flux_idx1]);
+    d_data_con.p[idx]   = d_data_con.p[idx]   - (dt/dx) * (d_SLIC_flux.p[flux_idx2]   - d_SLIC_flux.p[flux_idx1]);
+}
+
 
 void updateSolution(
     solVectors &d_data_con,
@@ -614,9 +872,75 @@ void updateSolution(
                   << cudaGetErrorString(err) << std::endl;
         exit(-1);
     }
-}
+    }
+    else{
+    dim3 block(16, 16);
+    dim3 grid( (nx + 4 + block.x - 1) / block.x,
+               (ny + block.y - 1) / block.y );
+    updateKernel_y<<<grid, block>>>(d_data_con, d_SLIC_flux, dt, dx, nx, ny);
+    cudaDeviceSynchronize();
+    cudaError_t err = cudaGetLastError();
+    if (err != cudaSuccess) {
+        std::cerr << "CUDA kernel launch failed in updateKernel_x: " 
+                  << cudaGetErrorString(err) << std::endl;
+        exit(-1);
+    }
+    }
 }
 
+
+__global__ void list_con2priKernel(
+    const solVectors d_data_con,
+    solVectors d_data_pri,
+    int nx, int ny
+)
+{
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    int j = blockIdx.y * blockDim.y + threadIdx.y;
+    if (i >= (nx+4) || j >= (ny+4)) {
+        return;
+    }
+    int stride = (nx + 4);
+    int idx = j*stride + i;
+    float con[4];
+    con[0] = d_data_con.rho[idx];
+    con[1] = d_data_con.vx [idx];
+    con[2] = d_data_con.vy [idx];
+    con[3] = d_data_con.p  [idx];
+    float pri[4];
+    get_pri(con, pri);
+    d_data_pri.rho[idx] = pri[0];
+    d_data_pri.vx [idx] = pri[1];
+    d_data_pri.vy [idx] = pri[2];
+    d_data_pri.p  [idx] = pri[3];
+}
+
+void list_con2pri(
+    solVectors &d_data_con,
+    solVectors &d_data_pri
+)
+{
+    CUDA_CHECK(cudaFree(d_data_pri.rho));
+    CUDA_CHECK(cudaFree(d_data_pri.vx));
+    CUDA_CHECK(cudaFree(d_data_pri.vy));
+    CUDA_CHECK(cudaFree(d_data_pri.p));
+    CUDA_CHECK(cudaMalloc((void**)&(d_data_pri.rho), (nx+4) * (ny+4) * sizeof(float)));
+    CUDA_CHECK(cudaMalloc((void**)&(d_data_pri.vx),  (nx+4) * (ny+4) * sizeof(float)));
+    CUDA_CHECK(cudaMalloc((void**)&(d_data_pri.vy),  (nx+4) * (ny+4) * sizeof(float)));
+    CUDA_CHECK(cudaMalloc((void**)&(d_data_pri.p),   (nx+4) * (ny+4) * sizeof(float)));
+
+    dim3 block(16, 16);
+    dim3 grid( (nx + 4 + block.x - 1) / block.x,
+               (ny + 4 + block.y - 1) / block.y );
+    list_con2priKernel<<<grid, block>>>(d_data_con, d_data_pri, nx, ny);
+    cudaDeviceSynchronize();
+    cudaError_t err = cudaGetLastError();
+    if (err != cudaSuccess) {
+        std::cerr << "CUDA kernel launch failed in list_con2pri: " 
+                  << cudaGetErrorString(err) << std::endl;
+        exit(-1);
+    }
+}
 
 void freeDeviceMemory2(solVectors &d_half_uL, solVectors &d_half_uR, solVectors &d_SLIC_flux) {
     CUDA_CHECK(cudaFree(d_half_uL.rho));
@@ -631,4 +955,29 @@ void freeDeviceMemory2(solVectors &d_half_uL, solVectors &d_half_uR, solVectors 
     CUDA_CHECK(cudaFree(d_SLIC_flux.vx));
     CUDA_CHECK(cudaFree(d_SLIC_flux.vy));
     CUDA_CHECK(cudaFree(d_SLIC_flux.p));
+}
+
+void store_data(const std::vector<float> rho, const std::vector<float> vx, const std::vector<float> vy, const std::vector<float> p, const float t, int step) {
+    std::ostringstream filename;
+  filename << "data/step_" << std::setw(4) << std::setfill('0') << step
+           << ".csv";
+  std::ofstream file(filename.str());
+  if (!file.is_open()) {
+    std::cerr << "Error opening file: " << filename.str() << std::endl;
+    return;
+  }
+  // 写入时间信息
+  file << "# Time: " << t << "\n";
+  // 写入数据
+  for (int j = 2; j < ny; j++) {
+    for (int i = 2; i < nx; i++) {
+        int idx = j * (nx + 4) + i;
+      file << rho[0] << "," << vx[1] << "," << vy[2] << "," << p[3];
+      if (i < nx - 1) {
+        file << ",";
+      }
+    }
+    file << "\n";
+  }
+  file.close();
 }

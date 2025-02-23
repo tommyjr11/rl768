@@ -5,12 +5,14 @@ NVCC = nvcc
 
 # 编译选项，可根据需求加上 -O3
 NVCCFLAGS = -std=c++14 -arch=sm_80 -gencode=arch=compute_80,code=sm_80
+# NVCCFLAGS = -std=c++14 -arch=sm_80 -gencode=arch=compute_80,code=sm_80 --fmad=false -prec-div=true -prec-sqrt=true
+
 
 # 可执行文件名
 TARGET = slic
 
 # 源文件列表
-SRCS = main.cu data.cu constants.cu slic.cu help_function.cu
+SRCS = main.cu data.cu 
 
 # 对应的目标文件
 OBJS = $(SRCS:.cu=.o)

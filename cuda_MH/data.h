@@ -4,6 +4,7 @@
 #define DATA_H
 #include <cuda_runtime.h>
 #include "help_function.h"
+#include <vector>
 #define CUDA_CHECK(call) \
     { \
         cudaError_t err = call; \
@@ -67,4 +68,9 @@ void updateSolution(
     int choice
 );
 void freeDeviceMemory2(solVectors &d_half_uL, solVectors &d_half_uR, solVectors &d_SLIC_flux);
+void list_con2pri(
+    solVectors &d_data_con,
+    solVectors &d_data_pri
+);
+void store_data(const std::vector<float> rho, const std::vector<float> vx, const std::vector<float> vy, const std::vector<float> p, const float t, int step);
 #endif // DATA_H
