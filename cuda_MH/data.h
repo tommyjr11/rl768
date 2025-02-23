@@ -15,8 +15,8 @@
         } \
     }
 // 在此简单规定网格数量（例如一维 N=1000）
-const int nx = 100;
-const int ny = 100;
+const int nx = 2000;
+const int ny = 2000;
 const int ghost = 2;
 const float C = 0.8;
 const float t0 = 0.0;

@@ -35,16 +35,16 @@ int main() {
         computeSLICFlux(d_half_uL,d_half_uR,d_SLIC_flux,dt,2);
         updateSolution(d_data_con,d_SLIC_flux,dt,2);
         freeDeviceMemory2(d_half_uL, d_half_uR, d_SLIC_flux);
+        
         list_con2pri(d_data_con, d_data_pri);
-
+        
         // 取出 d_data_pri
         cudaMemcpy(h_rho.data(), d_data_pri.rho, sizeof(float) * (nx+4) * (ny+4), cudaMemcpyDeviceToHost);
         cudaMemcpy(h_vx.data(), d_data_pri.vx, sizeof(float) * (nx+4) * (ny+4), cudaMemcpyDeviceToHost);
         cudaMemcpy(h_vy.data(), d_data_pri.vy, sizeof(float) * (nx+4) * (ny+4), cudaMemcpyDeviceToHost);
         cudaMemcpy(h_p.data(), d_data_pri.p, sizeof(float) * (nx+4) * (ny+4), cudaMemcpyDeviceToHost);
-        store_data(h_rho, h_vx, h_vy, h_p,dt,step);
-
     }
+    store_data(h_rho, h_vx, h_vy, h_p,dt,1);
     freeDeviceMemory(d_data_pri, d_data_con);
     return 0;
 }

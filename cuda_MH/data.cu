@@ -725,7 +725,7 @@ __global__ void computeSLICFluxKernel_y(
     // ---------------- Step 3: 计算 RI 通量 ----------------
     float pri_RI[4], RI[4];
     get_pri(RI_U, pri_RI);
-    get_flux_x(pri_RI, RI);
+    get_flux_y(pri_RI, RI);
     // ---------------- Step 4: 计算最终 SLIC flux = 0.5*(LF + RI) ----------------
     float slic_flux[4];
     for (int k = 0; k < 4; k++) {
@@ -972,7 +972,7 @@ void store_data(const std::vector<float> rho, const std::vector<float> vx, const
   for (int j = 2; j < ny; j++) {
     for (int i = 2; i < nx; i++) {
         int idx = j * (nx + 4) + i;
-      file << rho[0] << "," << vx[1] << "," << vy[2] << "," << p[3];
+      file << rho[idx] << "," << vx[idx] << "," << vy[idx] << "," << p[idx];
       if (i < nx - 1) {
         file << ",";
       }
