@@ -7,6 +7,7 @@
 #include <string>
 #include <sstream>
 #include <iomanip>
+
 void allocateDeviceMemory(solVectors &d_data_pri, solVectors &d_data_con) {
     CUDA_CHECK(cudaMalloc((void**)&(d_data_pri.rho), (nx+4) * (ny+4) * sizeof(float)));
     CUDA_CHECK(cudaMalloc((void**)&(d_data_pri.vx),  (nx+4) * (ny+4) * sizeof(float)));

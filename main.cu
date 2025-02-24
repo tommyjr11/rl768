@@ -1,8 +1,9 @@
 #include <iostream>
 #include "data.h"
 #include <vector>
-
+#include <chrono>
 int main() {
+    auto start = std::chrono::high_resolution_clock::now();
     solVectors d_data_pri;
     solVectors d_data_con;
     solVectors d_half_uL;
@@ -19,7 +20,7 @@ int main() {
     int step = 0;
     for (;;){
         dt = getdtGPU(d_data_pri, 1.4f);
-        std::cout << "step: "<< step << " dt = " << dt << std::endl;
+        // std::cout << "step: "<< step << " dt = " << dt << std::endl;
         step++;
         if (t >= t1) break;
         t = t + dt;
@@ -43,7 +44,10 @@ int main() {
         cudaMemcpy(h_vy.data(), d_data_pri.vy, sizeof(float) * (nx+4) * (ny+4), cudaMemcpyDeviceToHost);
         cudaMemcpy(h_p.data(), d_data_pri.p, sizeof(float) * (nx+4) * (ny+4), cudaMemcpyDeviceToHost);
     }
-    store_data(h_rho, h_vx, h_vy, h_p,dt,1);
+    // store_data(h_rho, h_vx, h_vy, h_p,dt,1);
+    auto end = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double> elapsed = end - start;
+    std::cout << "Time: " << elapsed.count() << " s\n";
     freeDeviceMemory(d_data_pri, d_data_con);
     return 0;
 }
