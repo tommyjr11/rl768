@@ -105,29 +105,29 @@ void initDataAndCopyToGPU(solVectors &d_data_pri,solVectors d_data_con)
             double y = (j - ghost + 0.5f) * dy;
 
             // 根据坐标区域，给出不同初值（示例）
-            if (x < 0.5f) {
+            if (x < 0.5) {
                 if (y < 0.5f) {
-                    h_rho[idx] = 0.138f;
-                    h_vx [idx] = 1.206f;
-                    h_vy [idx] = 1.206f;
-                    h_p  [idx] = 0.029f;
+                    h_rho[idx] = 0.138;
+                    h_vx [idx] = 1.206;
+                    h_vy [idx] = 1.206;
+                    h_p  [idx] = 0.029;
                 } else {
-                    h_rho[idx] = 0.5323f;
-                    h_vx [idx] = 1.206f;
-                    h_vy [idx] = 0.0f;
-                    h_p  [idx] = 0.3f;
+                    h_rho[idx] = 0.5323;
+                    h_vx [idx] = 1.206;
+                    h_vy [idx] = 0.0;
+                    h_p  [idx] = 0.3;
                 }
             } else {
-                if (y < 0.5f) {
-                    h_rho[idx] = 0.5323f;
-                    h_vx [idx] = 0.0f;
-                    h_vy [idx] = 1.206f;
-                    h_p  [idx] = 0.3f;
+                if (y < 0.5) {
+                    h_rho[idx] = 0.5323;
+                    h_vx [idx] = 0.0;
+                    h_vy [idx] = 1.206;
+                    h_p  [idx] = 0.3;
                 } else {
-                    h_rho[idx] = 1.5f;
-                    h_vx [idx] = 0.0f;
-                    h_vy [idx] = 0.0f;
-                    h_p  [idx] = 1.5f;
+                    h_rho[idx] = 1.5;
+                    h_vx [idx] = 0.0;
+                    h_vy [idx] = 0.0;
+                    h_p  [idx] = 1.5;
                 }
             }
         }
@@ -168,7 +168,7 @@ __global__ void getMaxSpeedKernel(
         double c   = sqrtf(r * __ldg(&p[idx]) / __ldg(&rho[idx]));  // **优化2: __ldg() 提高访存效率**
         double spx = fabsf(__ldg(&vx[idx])) + c;
         double spy = fabsf(__ldg(&vy[idx])) + c;
-        localMax  = fmaxf(localMax, fmaxf(spx, spy));
+        localMax  = fmax(localMax, fmax(spx, spy));
     }
 
     // **优化3: Warp-level reduction**
@@ -177,7 +177,7 @@ __global__ void getMaxSpeedKernel(
 
     // **Warp 级别归约**
     for (int offset = warpSize / 2; offset > 0; offset /= 2) {
-        localMax = fmaxf(localMax, __shfl_down_sync(0xffffffff, localMax, offset));
+        localMax = fmax(localMax, __shfl_down_sync(0xffffffff, localMax, offset));
     }
 
     // **优化4: 使用 warp shuffle 归约到 warp 0**
@@ -189,7 +189,7 @@ __global__ void getMaxSpeedKernel(
     // **仅 block 内 thread 0 进行最终归约**
     if (tid == 0) {
         for (int i = 1; i < blockDim.x / warpSize; i++) {
-            localMax = fmaxf(localMax, sdata[i]);
+            localMax = fmax(localMax, sdata[i]);
         }
         blockMax[blockIdx.x] = localMax;
     }
@@ -223,9 +223,9 @@ double getmaxspeedGPU(const solVectors &d_data_pri, double r)
 
     CUDA_CHECK(cudaFree(d_blockMax));
 
-    double maxSpeed = 0.0f;
+    double maxSpeed = 0.0;
     for (int i = 0; i < gridSize; i++) {
-        maxSpeed = fmaxf(maxSpeed, h_blockMax[i]);
+        maxSpeed = fmax(maxSpeed, h_blockMax[i]);
     }
 
     return maxSpeed;
@@ -234,11 +234,11 @@ double getmaxspeedGPU(const solVectors &d_data_pri, double r)
 double getdtGPU(const solVectors &d_data_pri, double r)
 {
     double maxSpeed = getmaxspeedGPU(d_data_pri, r);
-    if (maxSpeed < 1e-15f) {
-        return 1.0e10f; // 给一个很大的dt
+    if (maxSpeed < 1e-15) {
+        return 1.0e10; // 给一个很大的dt
     }
     // 选一个最小网格尺度
-    double minDxDy = fminf(dx, dy);
+    double minDxDy = fmin(dx, dy);
     double dt = C * minDxDy / maxSpeed;
     return dt;
 }
@@ -332,7 +332,7 @@ __device__ double limiterL2(double smaller, double larger) {
     }
     else {
         double temp2 = 2*R_slope/(1+R_slope);
-        return fminf(1.0, temp2);
+        return fmin(1.0, temp2);
         }  
 }
 
@@ -357,7 +357,7 @@ __device__ double limiterR2(double smaller, double larger) {
     else 
     {
         double temp2 = 2/(1+R_slope);
-        return fminf(1.0, temp2);
+        return fmin(1.0, temp2);
     }
 }
 
@@ -419,15 +419,15 @@ __global__ void computeHalftimeKernel_x(
     for (int k = 0; k < 4; k++) {
         double temp1 = conM[k] - conL[k];  // i - (i-1)
         double temp2 = conR[k] - conM[k];  // (i+1) - i
-        double di = 0.5f * (temp1 + temp2);
+        double di = 0.5 * (temp1 + temp2);
 
         // 这里分别调用 limiterL2 / limiterR2：
         double phiL = limiterL2(temp1, temp2);
         double phiR = limiterR2(temp1, temp2);
 
         // 得到左右临时状态
-        tempL[k] = conM[k] - 0.5f * di * phiL;
-        tempR[k] = conM[k] + 0.5f * di * phiR;
+        tempL[k] = conM[k] - 0.5 * di * phiL;
+        tempR[k] = conM[k] + 0.5 * di * phiR;
     }
     // --- Step 3: 将 tempL, tempR 转为原始量 priL, priR，并计算通量 fluxL, fluxR ---
     double priL[4], priR[4];
@@ -441,7 +441,7 @@ __global__ void computeHalftimeKernel_x(
     // --- Step 4: 半步更新 (回到保守量空间) ---
     // tempL, tempR 各减去 0.5*(dt/dx)*(fluxR - fluxL)
     for (int k = 0; k < 4; k++) {
-        double delta = 0.5f * (dt / dx) * (fluxR[k] - fluxL[k]);
+        double delta = 0.5 * (dt / dx) * (fluxR[k] - fluxL[k]);
         tempL[k] = tempL[k] - delta;
         tempR[k] = tempR[k] - delta;
     }
@@ -503,15 +503,15 @@ __global__ void computeHalftimeKernel_y(
     for (int k = 0; k < 4; k++) {
         double temp1 = conM[k] - conL[k];  // i - (i-1)
         double temp2 = conR[k] - conM[k];  // (i+1) - i
-        double di = 0.5f * (temp1 + temp2);
+        double di = 0.5 * (temp1 + temp2);
 
         // 这里分别调用 limiterL2 / limiterR2：
         double phiL = limiterL2(temp1, temp2);
         double phiR = limiterR2(temp1, temp2);
 
         // 得到左右临时状态
-        tempL[k] = conM[k] - 0.5f * di * phiL;
-        tempR[k] = conM[k] + 0.5f * di * phiR;
+        tempL[k] = conM[k] - 0.5 * di * phiL;
+        tempR[k] = conM[k] + 0.5 * di * phiR;
     }
     // --- Step 3: 将 tempL, tempR 转为原始量 priL, priR，并计算通量 fluxL, fluxR ---
     double priL[4], priR[4];
@@ -525,7 +525,7 @@ __global__ void computeHalftimeKernel_y(
     // --- Step 4: 半步更新 (回到保守量空间) ---
     // tempL, tempR 各减去 0.5*(dt/dx)*(fluxR - fluxL)
     for (int k = 0; k < 4; k++) {
-        double delta = 0.5f * (dt / dx) * (fluxR[k] - fluxL[k]);
+        double delta = 0.5 * (dt / dx) * (fluxR[k] - fluxL[k]);
         tempL[k] = tempL[k] - delta;
         tempR[k] = tempR[k] - delta;
     }
@@ -655,8 +655,8 @@ __global__ void computeSLICFluxKernel_x(
     // ---------------- Step 2: 计算 LF 与 RI_U ----------------
     double LF[4], RI_U[4];
     for (int k = 0; k < 4; k++) {
-        LF[k]   = 0.5f * (fluxL[k] + fluxR[k]) + 0.5f * (dx / dt) * (consR[k] - consL[k]);
-        RI_U[k] = 0.5f * (consL[k] + consR[k]) - 0.5f * (dt / dx) * (fluxL[k] - fluxR[k]);
+        LF[k]   = 0.5 * (fluxL[k] + fluxR[k]) + 0.5 * (dx / dt) * (consR[k] - consL[k]);
+        RI_U[k] = 0.5 * (consL[k] + consR[k]) - 0.5 * (dt / dx) * (fluxL[k] - fluxR[k]);
     }
 
     // ---------------- Step 3: 计算 RI 通量 ----------------
@@ -666,7 +666,7 @@ __global__ void computeSLICFluxKernel_x(
     // ---------------- Step 4: 计算最终 SLIC flux = 0.5*(LF + RI) ----------------
     double slic_flux[4];
     for (int k = 0; k < 4; k++) {
-        slic_flux[k] = 0.5f * (LF[k] + RI[k]);
+        slic_flux[k] = 0.5 * (LF[k] + RI[k]);
     }
     d_SLIC_flux.rho[flux_idx] = slic_flux[0];
     d_SLIC_flux.vx [flux_idx] = slic_flux[1];
@@ -718,8 +718,8 @@ __global__ void computeSLICFluxKernel_y(
     // ---------------- Step 2: 计算 LF 与 RI_U ----------------
     double LF[4], RI_U[4];
     for (int k = 0; k < 4; k++) {
-        LF[k]   = 0.5f * (fluxL[k] + fluxR[k]) + 0.5f * (dx / dt) * (consR[k] - consL[k]);
-        RI_U[k] = 0.5f * (consL[k] + consR[k]) - 0.5f * (dt / dx) * (fluxL[k] - fluxR[k]);
+        LF[k]   = 0.5 * (fluxL[k] + fluxR[k]) + 0.5 * (dx / dt) * (consR[k] - consL[k]);
+        RI_U[k] = 0.5 * (consL[k] + consR[k]) - 0.5 * (dt / dx) * (fluxL[k] - fluxR[k]);
     }
 
     // ---------------- Step 3: 计算 RI 通量 ----------------
@@ -729,7 +729,7 @@ __global__ void computeSLICFluxKernel_y(
     // ---------------- Step 4: 计算最终 SLIC flux = 0.5*(LF + RI) ----------------
     double slic_flux[4];
     for (int k = 0; k < 4; k++) {
-        slic_flux[k] = 0.5f * (LF[k] + RI[k]);
+        slic_flux[k] = 0.5 * (LF[k] + RI[k]);
     }
     d_SLIC_flux.rho[flux_idx] = slic_flux[0];
     d_SLIC_flux.vx [flux_idx] = slic_flux[1];
@@ -933,13 +933,13 @@ void list_con2pri(
     dim3 grid( (nx + 4 + block.x - 1) / block.x,
                (ny + 4 + block.y - 1) / block.y );
     list_con2priKernel<<<grid, block>>>(d_data_con, d_data_pri, nx, ny);
-    cudaDeviceSynchronize();
-    cudaError_t err = cudaGetLastError();
-    if (err != cudaSuccess) {
-        std::cerr << "CUDA kernel launch failed in list_con2pri: " 
-                  << cudaGetErrorString(err) << std::endl;
-        exit(-1);
-    }
+    // cudaDeviceSynchronize();
+    // cudaError_t err = cudaGetLastError();
+    // if (err != cudaSuccess) {
+    //     std::cerr << "CUDA kernel launch failed in list_con2pri: " 
+    //               << cudaGetErrorString(err) << std::endl;
+    //     exit(-1);
+    // }
 }
 
 void freeDeviceMemory2(solVectors &d_half_uL, solVectors &d_half_uR, solVectors &d_SLIC_flux) {
