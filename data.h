@@ -17,22 +17,22 @@
 const int nx = 800;
 const int ny = 800;
 const int ghost = 2;
-const float C = 0.8;
-const float t0 = 0.0;
-const float t1 = 0.3;
-const float x_width0 = 0.0;
-const float x_width1 = 1.0;
-const float y_width0 = 0.0;
-const float y_width1 = 1.0;
-const float dx = (x_width1 - x_width0) / nx;
-const float dy = (y_width1 - y_width0) / ny;
+const double C = 0.8;
+const double t0 = 0.0;
+const double t1 = 0.3;
+const double x_width0 = 0.0;
+const double x_width1 = 1.0;
+const double y_width0 = 0.0;
+const double y_width1 = 1.0;
+const double dx = (x_width1 - x_width0) / nx;
+const double dy = (y_width1 - y_width0) / ny;
 
 // SoA 结构
 struct solVectors {
-    float *rho;
-    float *vx;
-    float *vy;
-    float *p;
+    double *rho;
+    double *vx;
+    double *vy;
+    double *p;
 };
 // 在 GPU 上分配/释放
 void allocateDeviceMemory(solVectors &d_data_pri, solVectors &d_data_con);
@@ -40,9 +40,9 @@ void freeDeviceMemory(solVectors &d_data_pri, solVectors &d_data_con);
 // 初始化并复制到 GPU
 void initDataAndCopyToGPU(solVectors &d_data_pri,solVectors d_data_con);
 // 使用 GPU 计算网格内的最大速度
-float getmaxspeedGPU(const solVectors &d_data_pri, float r);
+double getmaxspeedGPU(const solVectors &d_data_pri, double r);
 // 计算时间步长 = C * min(dx, dy) / maxSpeed
-float getdtGPU(const solVectors &d_data_pri, float r);
+double getdtGPU(const solVectors &d_data_pri, double r);
 // 设置边界条件
 void applyBoundaryConditions(solVectors &d_u);
 // half time 
@@ -50,20 +50,20 @@ void computeHalftime(
     const solVectors &d_data_con,
     solVectors &d_half_uL,
     solVectors &d_half_uR,
-    float dt,
+    double dt,
     int choice
 );
 void computeSLICFlux(
     const solVectors &d_half_uL,
     const solVectors &d_half_uR,
     solVectors &d_SLIC_flux, 
-    float dt,
+    double dt,
     int choice 
 );
 void updateSolution(
     solVectors &d_data_con,
     const solVectors &d_SLIC_flux,
-    float dt,
+    double dt,
     int choice
 );
 void freeDeviceMemory2(solVectors &d_half_uL, solVectors &d_half_uR, solVectors &d_SLIC_flux);
@@ -71,5 +71,5 @@ void list_con2pri(
     solVectors &d_data_con,
     solVectors &d_data_pri
 );
-void store_data(const std::vector<float> rho, const std::vector<float> vx, const std::vector<float> vy, const std::vector<float> p, const float t, int step);
+void store_data(const std::vector<double> rho, const std::vector<double> vx, const std::vector<double> vy, const std::vector<double> p, const double t, int step);
 #endif // DATA_H
