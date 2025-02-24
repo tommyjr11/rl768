@@ -67,5 +67,5 @@ fig.colorbar(c, ax=ax, label='Pressure')
 
 # ========== 8. 保存优化后的高质量图片 ==========
 plt.tight_layout()
-plt.savefig('final_frame_optimized.png', dpi=1200, bbox_inches='tight')  # dpi=600，避免太大
+plt.savefig('final_frame_optimized100.png', dpi=1200, bbox_inches='tight')  # dpi=600，避免太大
 plt.show()
