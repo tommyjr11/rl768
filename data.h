@@ -14,8 +14,16 @@
         } \
     }
 // 在此简单规定网格数量（例如一维 N=1000）
-const int nx = 800;
-const int ny = 800;
+#define NX 100
+#define NY 100
+#define HALFX (NX + 2)
+#define HALFY (NY + 4)
+#define HALF_SIZE (HALFX * HALFY)
+#define SLIC_SIZE ((NX + 1) * (NY + 4))
+#define BDIMX 16
+#define BDIMY 16
+const int nx = NX;
+const int ny = NY;
 const int ghost = 2;
 const double C = 0.8;
 const double t0 = 0.0;
@@ -72,4 +80,5 @@ void list_con2pri(
     solVectors &d_data_pri
 );
 void store_data(const std::vector<double> rho, const std::vector<double> vx, const std::vector<double> vy, const std::vector<double> p, const double t, int step);
-#endif // DATA_H
+void launchUpdateSLICKernel(solVectors &d_data_con, double dt);
+#endif 
