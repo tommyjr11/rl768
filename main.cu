@@ -19,7 +19,7 @@ int main() {
         std::cout << "step: "<< step << " dt = " << dt << std::endl;
         step++;
         applyBoundaryConditions(d_data_con);
-        // launchUpdateSLICKernel(d_data_con, dt);
+        launchUpdateSLICKernel(d_data_con, dt);
         // computeHalftime(d_data_con,d_half_uL,d_half_uR,dt,1);
         // computeSLICFlux(d_half_uL,d_half_uR,d_SLIC_flux,dt,1);
         // updateSolution(d_data_con,d_SLIC_flux,dt,1);

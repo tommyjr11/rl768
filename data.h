@@ -13,10 +13,18 @@
         } \
     }
 
-#define BDIMX 16
-#define BDIMY 16
-const int nx = 800;
-const int ny = 800;
+#define BDIMX_X 64
+#define BDIMX_Y 6
+#define BDIMY_X 6
+#define BDIMY_Y 64
+#define nx_point 800
+#define ny_point 800
+#define SHARE_X_GRID_X (1+(nx_point + 4 - BDIMX_X)/(BDIMX_X - 4))
+#define SHARE_X_GRID_Y ((ny_point + 4 + BDIMX_Y - 1) / BDIMX_Y)
+#define SHARE_Y_GRID_Y (1+(ny_point + 4 - BDIMY_Y)/(BDIMY_Y - 4))
+#define SHARE_Y_GRID_X ((nx_point + 4 + BDIMY_X - 1) / BDIMY_X)
+const int nx = nx_point;
+const int ny = ny_point;
 const int ghost = 2;
 const double C = 0.8;
 const double t0 = 0.0;

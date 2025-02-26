@@ -890,6 +890,13 @@ void list_con2pri(
     dim3 grid( (nx + 4 + block.x - 1) / block.x,
                (ny + 4 + block.y - 1) / block.y );
     list_con2priKernel<<<grid, block>>>(d_data_con, d_data_pri, nx, ny);
+    // cudaDeviceSynchronize();
+    // cudaError_t err = cudaGetLastError();
+    // if (err != cudaSuccess) {
+    //         std::cerr << "CUDA kernel launch failed in list_con2pri: " 
+    //                   << cudaGetErrorString(err) << std::endl;
+    //         exit(-1);
+    //     }
 }
 
 void freeDeviceMemory2(solVectors &d_half_uL, solVectors &d_half_uR, solVectors &d_SLIC_flux) {
@@ -939,54 +946,67 @@ __global__ void compute_x_shared (
         int nx,
         int ny)
     {
-        __shared__ double s_rho[BDIMY][BDIMX];
-        __shared__ double s_vx [BDIMY][BDIMX];
-        __shared__ double s_vy [BDIMY][BDIMX];
-        __shared__ double s_p  [BDIMY][BDIMX];
-        __shared__ double s_half_uL_rho[BDIMY][BDIMX-2];
-        __shared__ double s_half_uL_vx [BDIMY][BDIMX-2];
-        __shared__ double s_half_uL_vy [BDIMY][BDIMX-2];
-        __shared__ double s_half_uL_p  [BDIMY][BDIMX-2];
-        __shared__ double s_half_uR_rho[BDIMY][BDIMX-2];
-        __shared__ double s_half_uR_vx [BDIMY][BDIMX-2];
-        __shared__ double s_half_uR_vy [BDIMY][BDIMX-2];
-        __shared__ double s_half_uR_p  [BDIMY][BDIMX-2];
-        __shared__ double s_SLIC_flux_rho[BDIMY][BDIMX-3];
-        __shared__ double s_SLIC_flux_vx [BDIMY][BDIMX-3];
-        __shared__ double s_SLIC_flux_vy [BDIMY][BDIMX-3];
-        __shared__ double s_SLIC_flux_p  [BDIMY][BDIMX-3];
-        
-        int iglobal = (blockIdx.x == 0) ? threadIdx.x : (BDIMX - 4) + (BDIMX - 4) * (blockIdx.x - 1) + threadIdx.x;
-        int jglobal = blockIdx.y * BDIMY + threadIdx.y;
+        // __shared__ double s_rho[BDIMX_Y][BDIMX_X];
+        // __shared__ double s_vx [BDIMX_Y][BDIMX_X];
+        // __shared__ double s_vy [BDIMX_Y][BDIMX_X];
+        // __shared__ double s_p  [BDIMX_Y][BDIMX_X];
+        // __shared__ double s_half_uL_rho[BDIMX_Y][BDIMX_X-2];
+        // __shared__ double s_half_uL_vx [BDIMX_Y][BDIMX_X-2];
+        // __shared__ double s_half_uL_vy [BDIMX_Y][BDIMX_X-2];
+        // __shared__ double s_half_uL_p  [BDIMX_Y][BDIMX_X-2];
+        // __shared__ double s_half_uR_rho[BDIMX_Y][BDIMX_X-2];
+        // __shared__ double s_half_uR_vx [BDIMX_Y][BDIMX_X-2];
+        // __shared__ double s_half_uR_vy [BDIMX_Y][BDIMX_X-2];
+        // __shared__ double s_half_uR_p  [BDIMX_Y][BDIMX_X-2];
+        // __shared__ double s_SLIC_flux_rho[BDIMX_Y][BDIMX_X-3];
+        // __shared__ double s_SLIC_flux_vx [BDIMX_Y][BDIMX_X-3];
+        // __shared__ double s_SLIC_flux_vy [BDIMX_Y][BDIMX_X-3];
+        // __shared__ double s_SLIC_flux_p  [BDIMX_Y][BDIMX_X-3];
+
+
+        __shared__ double temp1_rho[BDIMX_Y][BDIMX_X];
+        __shared__ double temp1_vx [BDIMX_Y][BDIMX_X];
+        __shared__ double temp1_vy [BDIMX_Y][BDIMX_X];
+        __shared__ double temp1_p  [BDIMX_Y][BDIMX_X];
+
+        __shared__ double temp2_rho[BDIMX_Y][BDIMX_X-2];
+        __shared__ double temp2_vx [BDIMX_Y][BDIMX_X-2];
+        __shared__ double temp2_vy [BDIMX_Y][BDIMX_X-2];
+        __shared__ double temp2_p  [BDIMX_Y][BDIMX_X-2];
+
+
+
+        int iglobal = (blockIdx.x == 0) ? threadIdx.x : (BDIMX_X - 4) + (BDIMX_X - 4) * (blockIdx.x - 1) + threadIdx.x;
+        int jglobal = blockIdx.y * BDIMX_Y + threadIdx.y;
         int stride = nx + 4;
         if (iglobal >= nx + 4 || jglobal >= ny + 4) {
             return;
         }
         int idx = jglobal * stride + iglobal;
-        s_rho[threadIdx.y][threadIdx.x] = d_data_con.rho[idx];
-        s_vx [threadIdx.y][threadIdx.x] = d_data_con.vx [idx];
-        s_vy [threadIdx.y][threadIdx.x] = d_data_con.vy [idx];
-        s_p  [threadIdx.y][threadIdx.x] = d_data_con.p  [idx];
+        temp1_rho[threadIdx.y][threadIdx.x] = d_data_con.rho[idx];
+        temp1_vx [threadIdx.y][threadIdx.x] = d_data_con.vx [idx];
+        temp1_vy [threadIdx.y][threadIdx.x] = d_data_con.vy [idx];
+        temp1_p  [threadIdx.y][threadIdx.x] = d_data_con.p  [idx];
         __syncthreads();
-        if (threadIdx.x < BDIMX - 2  && threadIdx.y < BDIMY && iglobal < nx + 2 && jglobal < ny + 4) {
+        if (threadIdx.x < BDIMX_X - 2  && threadIdx.y < BDIMX_Y && iglobal < nx + 2 && jglobal < ny + 4) {
             int tempx = threadIdx.x + 1;
             double conM[4];  // con(i,j)
             double conL[4];  // con(i-1,j)
             double conR[4];  // con(i+1,j)
-            conM[0] = s_rho[threadIdx.y][tempx];
-            conM[1] = s_vx [threadIdx.y][tempx];  // 这里 vx 里实际存的是 rho*u
-            conM[2] = s_vy [threadIdx.y][tempx];  // 这里 vy 里实际存的是 rho*v
-            conM[3] = s_p  [threadIdx.y][tempx];  // E (总能量)
+            conM[0] = temp1_rho[threadIdx.y][tempx];
+            conM[1] = temp1_vx [threadIdx.y][tempx];  // 这里 vx 里实际存的是 rho*u
+            conM[2] = temp1_vy [threadIdx.y][tempx];  // 这里 vy 里实际存的是 rho*v
+            conM[3] = temp1_p  [threadIdx.y][tempx];  // E (总能量)
 
-            conL[0] = s_rho[threadIdx.y][tempx - 1];
-            conL[1] = s_vx [threadIdx.y][tempx - 1];
-            conL[2] = s_vy [threadIdx.y][tempx - 1];
-            conL[3] = s_p  [threadIdx.y][tempx - 1];
+            conL[0] = temp1_rho[threadIdx.y][tempx - 1];
+            conL[1] = temp1_vx [threadIdx.y][tempx - 1];
+            conL[2] = temp1_vy [threadIdx.y][tempx - 1];
+            conL[3] = temp1_p  [threadIdx.y][tempx - 1];
 
-            conR[0] = s_rho[threadIdx.y][tempx + 1];
-            conR[1] = s_vx [threadIdx.y][tempx + 1];
-            conR[2] = s_vy [threadIdx.y][tempx + 1];
-            conR[3] = s_p  [threadIdx.y][tempx + 1];
+            conR[0] = temp1_rho[threadIdx.y][tempx + 1];
+            conR[1] = temp1_vx [threadIdx.y][tempx + 1];
+            conR[2] = temp1_vy [threadIdx.y][tempx + 1];
+            conR[3] = temp1_p  [threadIdx.y][tempx + 1];
             // --- Step 2: 斜率限制，得到 tempL, tempR (仍在保守量空间) ---
             double tempL[4], tempR[4];
             for (int k = 0; k < 4; k++) {
@@ -1018,33 +1038,33 @@ __global__ void compute_x_shared (
                 tempL[k] = tempL[k] - delta;
                 tempR[k] = tempR[k] - delta;
             }
-            s_half_uL_rho[threadIdx.y][threadIdx.x] = tempL[0];
-            s_half_uL_vx [threadIdx.y][threadIdx.x] = tempL[1];
-            s_half_uL_vy [threadIdx.y][threadIdx.x] = tempL[2];
-            s_half_uL_p  [threadIdx.y][threadIdx.x] = tempL[3];
+            temp1_rho[threadIdx.y][threadIdx.x] = tempL[0];
+            temp1_vx [threadIdx.y][threadIdx.x] = tempL[1];
+            temp1_vy [threadIdx.y][threadIdx.x] = tempL[2];
+            temp1_p  [threadIdx.y][threadIdx.x] = tempL[3];
 
-            s_half_uR_rho[threadIdx.y][threadIdx.x] = tempR[0];
-            s_half_uR_vx [threadIdx.y][threadIdx.x] = tempR[1];
-            s_half_uR_vy [threadIdx.y][threadIdx.x] = tempR[2];
-            s_half_uR_p  [threadIdx.y][threadIdx.x] = tempR[3];
+            temp2_rho[threadIdx.y][threadIdx.x] = tempR[0];
+            temp2_vx [threadIdx.y][threadIdx.x] = tempR[1];
+            temp2_vy [threadIdx.y][threadIdx.x] = tempR[2];
+            temp2_p  [threadIdx.y][threadIdx.x] = tempR[3];
             
         }
         __syncthreads();
-        if(threadIdx.x < BDIMX - 3 && iglobal < nx + 1 && jglobal < ny + 4){
+        if(threadIdx.x < BDIMX_X - 3 && iglobal < nx + 1 && jglobal < ny + 4){
             int index_XL = threadIdx.x + 1;
             int index_XR = threadIdx.x;
             int index_Y  = threadIdx.y;
 
             double consL[4], consR[4];
-            consL[0] = s_half_uL_rho[index_Y][index_XL];
-            consL[1] = s_half_uL_vx [index_Y][index_XL];
-            consL[2] = s_half_uL_vy [index_Y][index_XL];
-            consL[3] = s_half_uL_p  [index_Y][index_XL];
+            consL[0] = temp1_rho[index_Y][index_XL];
+            consL[1] = temp1_vx [index_Y][index_XL];
+            consL[2] = temp1_vy [index_Y][index_XL];
+            consL[3] = temp1_p  [index_Y][index_XL];
 
-            consR[0] = s_half_uR_rho[index_Y][index_XR];
-            consR[1] = s_half_uR_vx [index_Y][index_XR];
-            consR[2] = s_half_uR_vy [index_Y][index_XR];
-            consR[3] = s_half_uR_p  [index_Y][index_XR];
+            consR[0] = temp2_rho[index_Y][index_XR];
+            consR[1] = temp2_vx [index_Y][index_XR];
+            consR[2] = temp2_vy [index_Y][index_XR];
+            consR[3] = temp2_p  [index_Y][index_XR];
 
             // ---------------- Step 1: 转换为原始量，并计算 x 方向通量 ----------------
             double priL[4], priR[4];
@@ -1070,20 +1090,20 @@ __global__ void compute_x_shared (
             for (int k = 0; k < 4; k++) {
                 slic_flux[k] = 0.5 * (LF[k] + RI[k]);
             }
-            s_SLIC_flux_rho[threadIdx.y][threadIdx.x] = slic_flux[0];
-            s_SLIC_flux_vx [threadIdx.y][threadIdx.x] = slic_flux[1];
-            s_SLIC_flux_vy [threadIdx.y][threadIdx.x] = slic_flux[2];
-            s_SLIC_flux_p  [threadIdx.y][threadIdx.x] = slic_flux[3];
+            temp1_rho[threadIdx.y][threadIdx.x] = slic_flux[0];
+            temp1_vx [threadIdx.y][threadIdx.x] = slic_flux[1];
+            temp1_vy [threadIdx.y][threadIdx.x] = slic_flux[2];
+            temp1_p  [threadIdx.y][threadIdx.x] = slic_flux[3];
         }
         __syncthreads();
         // start to update the data
-        if (threadIdx.x < BDIMX - 4 && iglobal < nx && jglobal < ny + 4) {
+        if (threadIdx.x < BDIMX_X - 4 && iglobal < nx && jglobal < ny + 4) {
             int stride_old = nx + 4;
             int idx = jglobal * stride_old + (iglobal + 2);
-            d_data_con.rho[idx] = d_data_con.rho[idx] - (dt/dx) * (s_SLIC_flux_rho[threadIdx.y][threadIdx.x + 1] - s_SLIC_flux_rho[threadIdx.y][threadIdx.x]);
-            d_data_con.vx[idx]  = d_data_con.vx[idx]  - (dt/dx) * (s_SLIC_flux_vx [threadIdx.y][threadIdx.x + 1] - s_SLIC_flux_vx [threadIdx.y][threadIdx.x]);
-            d_data_con.vy[idx]  = d_data_con.vy[idx]  - (dt/dx) * (s_SLIC_flux_vy [threadIdx.y][threadIdx.x + 1] - s_SLIC_flux_vy [threadIdx.y][threadIdx.x]);
-            d_data_con.p[idx]   = d_data_con.p[idx]   - (dt/dx) * (s_SLIC_flux_p  [threadIdx.y][threadIdx.x + 1] - s_SLIC_flux_p  [threadIdx.y][threadIdx.x]);
+            d_data_con.rho[idx] = d_data_con.rho[idx] - (dt/dx) * (temp1_rho[threadIdx.y][threadIdx.x + 1] - temp1_rho[threadIdx.y][threadIdx.x]);
+            d_data_con.vx[idx]  = d_data_con.vx[idx]  - (dt/dx) * (temp1_vx [threadIdx.y][threadIdx.x + 1] - temp1_vx [threadIdx.y][threadIdx.x]);
+            d_data_con.vy[idx]  = d_data_con.vy[idx]  - (dt/dx) * (temp1_vy [threadIdx.y][threadIdx.x + 1] - temp1_vy [threadIdx.y][threadIdx.x]);
+            d_data_con.p[idx]   = d_data_con.p[idx]   - (dt/dx) * (temp1_p  [threadIdx.y][threadIdx.x + 1] - temp1_p  [threadIdx.y][threadIdx.x]);
         }
     }
 
@@ -1094,54 +1114,64 @@ __global__ void compute_y_shared (
         int nx,
         int ny)
     {
-        __shared__ double s_rho[BDIMY][BDIMX];
-        __shared__ double s_vx [BDIMY][BDIMX];
-        __shared__ double s_vy [BDIMY][BDIMX];
-        __shared__ double s_p  [BDIMY][BDIMX];
-        __shared__ double s_half_uL_rho[BDIMY-2][BDIMX];
-        __shared__ double s_half_uL_vx [BDIMY-2][BDIMX];
-        __shared__ double s_half_uL_vy [BDIMY-2][BDIMX];
-        __shared__ double s_half_uL_p  [BDIMY-2][BDIMX];
-        __shared__ double s_half_uR_rho[BDIMY-2][BDIMX];
-        __shared__ double s_half_uR_vx [BDIMY-2][BDIMX];
-        __shared__ double s_half_uR_vy [BDIMY-2][BDIMX];
-        __shared__ double s_half_uR_p  [BDIMY-2][BDIMX];
-        __shared__ double s_SLIC_flux_rho[BDIMY-3][BDIMX];
-        __shared__ double s_SLIC_flux_vx [BDIMY-3][BDIMX];
-        __shared__ double s_SLIC_flux_vy [BDIMY-3][BDIMX];
-        __shared__ double s_SLIC_flux_p  [BDIMY-3][BDIMX];
+        // __shared__ double s_rho[BDIMY_Y][BDIMY_X];
+        // __shared__ double s_vx [BDIMY_Y][BDIMY_X];
+        // __shared__ double s_vy [BDIMY_Y][BDIMY_X];
+        // __shared__ double s_p  [BDIMY_Y][BDIMY_X];
+        // __shared__ double s_half_uL_rho[BDIMY_Y-2][BDIMY_X];
+        // __shared__ double s_half_uL_vx [BDIMY_Y-2][BDIMY_X];
+        // __shared__ double s_half_uL_vy [BDIMY_Y-2][BDIMY_X];
+        // __shared__ double s_half_uL_p  [BDIMY_Y-2][BDIMY_X];
+        // __shared__ double s_half_uR_rho[BDIMY_Y-2][BDIMY_X];
+        // __shared__ double s_half_uR_vx [BDIMY_Y-2][BDIMY_X];
+        // __shared__ double s_half_uR_vy [BDIMY_Y-2][BDIMY_X];
+        // __shared__ double s_half_uR_p  [BDIMY_Y-2][BDIMY_X];
+        // __shared__ double s_SLIC_flux_rho[BDIMY_Y-3][BDIMY_X];
+        // __shared__ double s_SLIC_flux_vx [BDIMY_Y-3][BDIMY_X];
+        // __shared__ double s_SLIC_flux_vy [BDIMY_Y-3][BDIMY_X];
+        // __shared__ double s_SLIC_flux_p  [BDIMY_Y-3][BDIMY_X];
+
+        __shared__ double temp1_rho[BDIMY_Y][BDIMY_X];
+        __shared__ double temp1_vx [BDIMY_Y][BDIMY_X];
+        __shared__ double temp1_vy [BDIMY_Y][BDIMY_X];
+        __shared__ double temp1_p  [BDIMY_Y][BDIMY_X];
+
+        __shared__ double temp2_rho[BDIMY_Y-2][BDIMY_X];
+        __shared__ double temp2_vx [BDIMY_Y-2][BDIMY_X];
+        __shared__ double temp2_vy [BDIMY_Y-2][BDIMY_X];
+        __shared__ double temp2_p  [BDIMY_Y-2][BDIMY_X];
 
         int iglobal = blockIdx.x * blockDim.x + threadIdx.x;
-        int jglobal = (blockIdx.y == 0) ? threadIdx.y : (BDIMY - 4) + (BDIMY - 4) * (blockIdx.y - 1) + threadIdx.y;
+        int jglobal = (blockIdx.y == 0) ? threadIdx.y : (BDIMY_Y - 4) + (BDIMY_Y - 4) * (blockIdx.y - 1) + threadIdx.y;
         int stride = nx + 4;
         if (iglobal >= nx + 4 || jglobal >= ny + 4) {
             return;
         }
         int idx = jglobal * stride + iglobal;
-        s_rho[threadIdx.y][threadIdx.x] = d_data_con.rho[idx];
-        s_vx [threadIdx.y][threadIdx.x] = d_data_con.vx [idx];
-        s_vy [threadIdx.y][threadIdx.x] = d_data_con.vy [idx];
-        s_p  [threadIdx.y][threadIdx.x] = d_data_con.p  [idx];
+        temp1_rho[threadIdx.y][threadIdx.x] = d_data_con.rho[idx];
+        temp1_vx [threadIdx.y][threadIdx.x] = d_data_con.vx [idx];
+        temp1_vy [threadIdx.y][threadIdx.x] = d_data_con.vy [idx];
+        temp1_p  [threadIdx.y][threadIdx.x] = d_data_con.p  [idx];
         __syncthreads();
-        if (threadIdx.y < BDIMY - 2  && threadIdx.x < BDIMX && iglobal < nx + 4 && jglobal < ny + 2) {
+        if (threadIdx.y < BDIMY_Y - 2  && threadIdx.x < BDIMY_X && iglobal < nx + 4 && jglobal < ny + 2) {
             int tempy = threadIdx.y + 1;
             double conM[4];  // con(i,j)
             double conL[4];  // con(i-1,j)
             double conR[4];  // con(i+1,j)
-            conM[0] = s_rho[tempy][threadIdx.x];
-            conM[1] = s_vx [tempy][threadIdx.x];  // 这里 vx 里实际存的是 rho*u
-            conM[2] = s_vy [tempy][threadIdx.x];  // 这里 vy 里实际存的是 rho*v
-            conM[3] = s_p  [tempy][threadIdx.x];  // E (总能量)
+            conM[0] = temp1_rho[tempy][threadIdx.x];
+            conM[1] = temp1_vx [tempy][threadIdx.x];  // 这里 vx 里实际存的是 rho*u
+            conM[2] = temp1_vy [tempy][threadIdx.x];  // 这里 vy 里实际存的是 rho*v
+            conM[3] = temp1_p  [tempy][threadIdx.x];  // E (总能量)
 
-            conL[0] = s_rho[tempy - 1][threadIdx.x];
-            conL[1] = s_vx [tempy - 1][threadIdx.x];
-            conL[2] = s_vy [tempy - 1][threadIdx.x];
-            conL[3] = s_p  [tempy - 1][threadIdx.x];
+            conL[0] = temp1_rho[tempy - 1][threadIdx.x];
+            conL[1] = temp1_vx [tempy - 1][threadIdx.x];
+            conL[2] = temp1_vy [tempy - 1][threadIdx.x];
+            conL[3] = temp1_p  [tempy - 1][threadIdx.x];
 
-            conR[0] = s_rho[tempy + 1][threadIdx.x];
-            conR[1] = s_vx [tempy + 1][threadIdx.x];
-            conR[2] = s_vy [tempy + 1][threadIdx.x];
-            conR[3] = s_p  [tempy + 1][threadIdx.x];
+            conR[0] = temp1_rho[tempy + 1][threadIdx.x];
+            conR[1] = temp1_vx [tempy + 1][threadIdx.x];
+            conR[2] = temp1_vy [tempy + 1][threadIdx.x];
+            conR[3] = temp1_p  [tempy + 1][threadIdx.x];
             // --- Step 2: 斜率限制，得到 tempL, tempR (仍在保守量空间) ---
             double tempL[4], tempR[4];
             for (int k = 0; k < 4; k++) {
@@ -1173,33 +1203,33 @@ __global__ void compute_y_shared (
                 tempL[k] = tempL[k] - delta;
                 tempR[k] = tempR[k] - delta;
             }
-            s_half_uL_rho[threadIdx.y][threadIdx.x] = tempL[0];
-            s_half_uL_vx [threadIdx.y][threadIdx.x] = tempL[1];
-            s_half_uL_vy [threadIdx.y][threadIdx.x] = tempL[2];
-            s_half_uL_p  [threadIdx.y][threadIdx.x] = tempL[3];
+            temp1_rho[threadIdx.y][threadIdx.x] = tempL[0];
+            temp1_vx [threadIdx.y][threadIdx.x] = tempL[1];
+            temp1_vy [threadIdx.y][threadIdx.x] = tempL[2];
+            temp1_p  [threadIdx.y][threadIdx.x] = tempL[3];
 
-            s_half_uR_rho[threadIdx.y][threadIdx.x] = tempR[0];
-            s_half_uR_vx [threadIdx.y][threadIdx.x] = tempR[1];
-            s_half_uR_vy [threadIdx.y][threadIdx.x] = tempR[2];
-            s_half_uR_p  [threadIdx.y][threadIdx.x] = tempR[3];
+            temp2_rho[threadIdx.y][threadIdx.x] = tempR[0];
+            temp2_vx [threadIdx.y][threadIdx.x] = tempR[1];
+            temp2_vy [threadIdx.y][threadIdx.x] = tempR[2];
+            temp2_p  [threadIdx.y][threadIdx.x] = tempR[3];
             
         }
         __syncthreads();
-        if(threadIdx.y < BDIMY - 3 && iglobal < nx + 4 && jglobal < ny + 1){
+        if(threadIdx.y < BDIMY_Y - 3 && iglobal < nx + 4 && jglobal < ny + 1){
             int index_YL = threadIdx.y + 1;
             int index_YR = threadIdx.y;
             int index_X  = threadIdx.x;
 
             double consL[4], consR[4];
-            consL[0] = s_half_uL_rho[index_YL][index_X];
-            consL[1] = s_half_uL_vx[index_YL][index_X];
-            consL[2] = s_half_uL_vy[index_YL][index_X];
-            consL[3] = s_half_uL_p[index_YL][index_X];
+            consL[0] = temp1_rho[index_YL][index_X];
+            consL[1] = temp1_vx[index_YL][index_X];
+            consL[2] = temp1_vy[index_YL][index_X];
+            consL[3] = temp1_p[index_YL][index_X];
 
-            consR[0] = s_half_uR_rho[index_YR][index_X];
-            consR[1] = s_half_uR_vx[index_YR][index_X];
-            consR[2] = s_half_uR_vy[index_YR][index_X];
-            consR[3] = s_half_uR_p [index_YR][index_X];
+            consR[0] = temp2_rho[index_YR][index_X];
+            consR[1] = temp2_vx[index_YR][index_X];
+            consR[2] = temp2_vy[index_YR][index_X];
+            consR[3] = temp2_p [index_YR][index_X];
 
             // ---------------- Step 1: 转换为原始量，并计算 x 方向通量 ----------------
             double priL[4], priR[4];
@@ -1225,31 +1255,43 @@ __global__ void compute_y_shared (
             for (int k = 0; k < 4; k++) {
                 slic_flux[k] = 0.5 * (LF[k] + RI[k]);
             }
-            s_SLIC_flux_rho[threadIdx.y][threadIdx.x] = slic_flux[0];
-            s_SLIC_flux_vx[threadIdx.y][threadIdx.x] = slic_flux[1];
-            s_SLIC_flux_vy[threadIdx.y][threadIdx.x] = slic_flux[2];
-            s_SLIC_flux_p[threadIdx.y][threadIdx.x] = slic_flux[3];
+            temp1_rho[threadIdx.y][threadIdx.x] = slic_flux[0];
+            temp1_vx[threadIdx.y][threadIdx.x] = slic_flux[1];
+            temp1_vy[threadIdx.y][threadIdx.x] = slic_flux[2];
+            temp1_p[threadIdx.y][threadIdx.x] = slic_flux[3];
         }
         __syncthreads();
         // start to update the data
-        if (threadIdx.y < BDIMY - 4 && iglobal < nx + 4 && jglobal < ny) {
+        if (threadIdx.y < BDIMY_Y - 4 && iglobal < nx + 4 && jglobal < ny) {
             int stride_old = nx + 4;
             int idx = (jglobal+2) * stride_old + iglobal;
-            d_data_con.rho[idx] = d_data_con.rho[idx] - (dt/dy) * (s_SLIC_flux_rho[threadIdx.y+1][threadIdx.x] - s_SLIC_flux_rho[threadIdx.y][threadIdx.x]);
-            d_data_con.vx[idx]  = d_data_con.vx[idx]  - (dt/dy) * (s_SLIC_flux_vx [threadIdx.y+1][threadIdx.x] - s_SLIC_flux_vx [threadIdx.y][threadIdx.x]);
-            d_data_con.vy[idx]  = d_data_con.vy[idx]  - (dt/dy) * (s_SLIC_flux_vy [threadIdx.y+1][threadIdx.x] - s_SLIC_flux_vy [threadIdx.y][threadIdx.x]);
-            d_data_con.p[idx]   = d_data_con.p[idx]   - (dt/dy) * (s_SLIC_flux_p  [threadIdx.y+1][threadIdx.x] - s_SLIC_flux_p  [threadIdx.y][threadIdx.x]);
+            d_data_con.rho[idx] = d_data_con.rho[idx] - (dt/dy) * (temp1_rho[threadIdx.y+1][threadIdx.x] - temp1_rho[threadIdx.y][threadIdx.x]);
+            d_data_con.vx[idx]  = d_data_con.vx[idx]  - (dt/dy) * (temp1_vx [threadIdx.y+1][threadIdx.x] - temp1_vx [threadIdx.y][threadIdx.x]);
+            d_data_con.vy[idx]  = d_data_con.vy[idx]  - (dt/dy) * (temp1_vy [threadIdx.y+1][threadIdx.x] - temp1_vy [threadIdx.y][threadIdx.x]);
+            d_data_con.p[idx]   = d_data_con.p[idx]   - (dt/dy) * (temp1_p  [threadIdx.y+1][threadIdx.x] - temp1_p  [threadIdx.y][threadIdx.x]);
         }
     }
 
     void launchUpdateSLICKernel(solVectors &d_data_con, double dt)
     {
-        dim3 block(BDIMX, BDIMY);
-        int overlap_x = 4;
-        dim3 grid(1 + (nx + 4 - BDIMX + (BDIMX - 2 * overlap_x) - 1) / (BDIMX - 2 * overlap_x),(ny + 4 + block.y - 1) / block.y);
+        dim3 block(BDIMX_X, BDIMX_Y);
+        dim3 grid(SHARE_X_GRID_X,SHARE_X_GRID_Y);
         compute_x_shared<<<grid, block>>>(d_data_con, dt, dx, nx, ny);
-        dim3 blocky(BDIMX, BDIMY);
-        int overlap_y = 4;
-        dim3 gridy((nx + 4 + block.x - 1) / block.x, 1+(ny + 4 - BDIMY + (BDIMY - 2 * overlap_y) - 1) / (BDIMY - 2 * overlap_y));
+        // cudaDeviceSynchronize();
+        // cudaError_t err2 = cudaGetLastError();
+        // if (err2 != cudaSuccess) {
+        //     std::cerr << "CUDA kernel launch failed in share X s: " 
+        //               << cudaGetErrorString(err2) << std::endl;
+        //     exit(-1);
+        // }
+        dim3 blocky(BDIMY_X, BDIMY_Y);
+        dim3 gridy(SHARE_Y_GRID_X, SHARE_Y_GRID_Y);
         compute_y_shared<<<gridy, blocky>>>(d_data_con, dt, dy, nx, ny);
+        // cudaDeviceSynchronize();
+        // cudaError_t err = cudaGetLastError();
+        // if (err != cudaSuccess) {
+        //     std::cerr << "CUDA kernel launch failed in share Y: " 
+        //               << cudaGetErrorString(err) << std::endl;
+        //     exit(-1);
+        // }
     }
