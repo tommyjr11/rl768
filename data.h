@@ -14,8 +14,8 @@
         } \
     }
 // 在此简单规定网格数量（例如一维 N=1000）
-#define NX 100
-#define NY 100
+#define NX 800
+#define NY 800
 #define HALFX (NX + 2)
 #define HALFY (NY + 4)
 #define HALF_SIZE (HALFX * HALFY)

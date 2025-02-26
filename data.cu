@@ -932,7 +932,8 @@ void store_data(const std::vector<double> rho, const std::vector<double> vx, con
   file.close();
 }
     __global__ void compute_x_shared (
-        solVectors d_data_con, 
+        solVectors d_data_con,
+        solVectors d_half_uL, 
         double dt,
         double dx,
         int nx,
@@ -954,7 +955,7 @@ void store_data(const std::vector<double> rho, const std::vector<double> vx, con
         __shared__ double s_SLIC_flux_vx [BDIMY][BDIMX-3];
         __shared__ double s_SLIC_flux_vy [BDIMY][BDIMX-3];
         __shared__ double s_SLIC_flux_p  [BDIMY][BDIMX-3];
-        int iglobal = (blockIdx.x == 0) ? threadIdx.x : (BDIMX - 2) + (BDIMX - 4) * (blockIdx.x - 1) + threadIdx.x;
+        int iglobal = (blockIdx.x == 0) ? threadIdx.x : (BDIMX - 4) + (BDIMX - 8) * (blockIdx.x - 1) + threadIdx.x;
         int jglobal = blockIdx.y * BDIMY + threadIdx.y;
         int stride = nx + 4;
         if (iglobal >= nx + 4 || jglobal >= ny + 4) {
@@ -1028,11 +1029,16 @@ void store_data(const std::vector<double> rho, const std::vector<double> vx, con
             
         }
         __syncthreads();
+        // if (iglobal == 13 && jglobal == 0) {
+        //     printf("iglobal = %d, jglobal = %d\n", iglobal, jglobal);
+        //     printf("s_half_uL_rho = %f\n", s_half_uL_rho[threadIdx.y][threadIdx.x]);
+        // }
         // start to calualate the SLIC flux
-        if(threadIdx.x < BDIMX - 3 && iglobal < nx + 1 ){
+        if(threadIdx.x < BDIMX - 3 && iglobal < nx + 1 && jglobal < ny + 4){
             int index_XL = threadIdx.x + 1;
             int index_XR = threadIdx.x;
             int index_Y  = threadIdx.y;
+
             double consL[4], consR[4];
             consL[0] = s_half_uL_rho[index_Y][index_XL];
             consL[1] = s_half_uL_vx [index_Y][index_XL];
@@ -1068,6 +1074,11 @@ void store_data(const std::vector<double> rho, const std::vector<double> vx, con
             for (int k = 0; k < 4; k++) {
                 slic_flux[k] = 0.5 * (LF[k] + RI[k]);
             }
+            int out_idx = jglobal * (nx + 1) + iglobal;
+            d_half_uL.rho[out_idx] = slic_flux[0];
+            d_half_uL.vx [out_idx] = slic_flux[1];
+            d_half_uL.vy [out_idx] = slic_flux[2];
+            d_half_uL.p  [out_idx] = slic_flux[3];
             s_SLIC_flux_rho[threadIdx.y][threadIdx.x] = slic_flux[0];
             s_SLIC_flux_vx [threadIdx.y][threadIdx.x] = slic_flux[1];
             s_SLIC_flux_vy [threadIdx.y][threadIdx.x] = slic_flux[2];
@@ -1075,7 +1086,7 @@ void store_data(const std::vector<double> rho, const std::vector<double> vx, con
         }
         __syncthreads();
         // start to update the data
-        if (iglobal < nx && jglobal < ny + 4) {
+        if (threadIdx.x < BDIMX - 4 && iglobal < nx && jglobal < ny + 4) {
             int stride_old = nx + 4;
             int idx = jglobal * stride_old + (iglobal + 2);
             d_data_con.rho[idx] = d_data_con.rho[idx] - (dt/dx) * (s_SLIC_flux_rho[threadIdx.y][threadIdx.x + 1] - s_SLIC_flux_rho[threadIdx.y][threadIdx.x]);
@@ -1085,30 +1096,260 @@ void store_data(const std::vector<double> rho, const std::vector<double> vx, con
         }
     }
 
+    __global__ void compute_y_shared (
+        solVectors d_data_con, 
+        double dt,
+        double dy,      // 注意：这里是 y 方向的网格步长
+        int nx,
+        int ny)
+{
+    // --------------- 1. 声明共享内存 ---------------
+    __shared__ double s_rho[BDIMY][BDIMX];
+    __shared__ double s_vx [BDIMY][BDIMX];
+    __shared__ double s_vy [BDIMY][BDIMX];
+    __shared__ double s_p  [BDIMY][BDIMX];
 
+    // 半步状态（下/上）: 类似 x 向更新时的 L/R，这里用 D/U (Down/Up) 表示
+    __shared__ double s_half_uD_rho[BDIMY-2][BDIMX];
+    __shared__ double s_half_uD_vx [BDIMY-2][BDIMX];
+    __shared__ double s_half_uD_vy [BDIMY-2][BDIMX];
+    __shared__ double s_half_uD_p  [BDIMY-2][BDIMX];
+
+    __shared__ double s_half_uU_rho[BDIMY-2][BDIMX];
+    __shared__ double s_half_uU_vx [BDIMY-2][BDIMX];
+    __shared__ double s_half_uU_vy [BDIMY-2][BDIMX];
+    __shared__ double s_half_uU_p  [BDIMY-2][BDIMX];
+
+    // 最终 SLIC 通量（y 方向）：类似 x 向时的 flux_rho 等，这里用 BDIMY-3
+    __shared__ double s_SLIC_flux_rho[BDIMY-3][BDIMX];
+    __shared__ double s_SLIC_flux_vx [BDIMY-3][BDIMX];
+    __shared__ double s_SLIC_flux_vy [BDIMY-3][BDIMX];
+    __shared__ double s_SLIC_flux_p  [BDIMY-3][BDIMX];
+
+    // --------------- 2. 计算全局索引 ---------------
+    // 与 x 向版本相反，这里 x 不做特殊处理，y 做类似的处理
+    // 保证在 y 方向上，每个 block 处理 BDIMY-2 有效行，考虑重叠等
+    int iglobal = blockIdx.x * BDIMX + threadIdx.x;
+    // 如果是首块(blockIdx.y=0)，则 jglobal = threadIdx.y；
+    // 否则：跳过首块的 (BDIMY - 2) 行，再往后每个 block 还要多跳 (BDIMY - 4) 行
+    int jglobal = (blockIdx.y == 0) ? threadIdx.y 
+                : ( (BDIMY - 4) + (BDIMY - 8) * (blockIdx.y - 1) + threadIdx.y );
+    int stride = nx + 4;  // 同样，x 方向多加的边界
+
+    // 越界检查
+    if (iglobal >= nx + 4 || jglobal >= ny + 4) {
+        return;
+    }
+
+    // --------------- 3. 读取全局数据到共享内存 ---------------
+    int idx = jglobal * stride + iglobal;
+    s_rho[threadIdx.y][threadIdx.x] = d_data_con.rho[idx];
+    s_vx [threadIdx.y][threadIdx.x] = d_data_con.vx [idx];
+    s_vy [threadIdx.y][threadIdx.x] = d_data_con.vy [idx];
+    s_p  [threadIdx.y][threadIdx.x] = d_data_con.p  [idx];
+
+    __syncthreads();
+
+    // --------------- 4. 斜率限制 + 半步更新 (在 y 方向) ---------------
+    // 条件：threadIdx.y < BDIMY - 2 使得我们可以访问 [tempy+1]
+    //      jglobal   < ny + 2       保证不越界
+    // 同时 x 不变，iglobal < nx+4 即可
+    if (threadIdx.y < BDIMY - 2 && iglobal < nx + 4 && jglobal < ny + 2)
+    {
+        int tempy = threadIdx.y + 1;
+        // 取 M / D / U (中心 / 下 / 上)
+        double conM[4], conD[4], conU[4];
+
+        conM[0] = s_rho[tempy][threadIdx.x];
+        conM[1] = s_vx [tempy][threadIdx.x]; // 这里 vx 存的是 rho*u
+        conM[2] = s_vy [tempy][threadIdx.x]; // 这里 vy 存的是 rho*v
+        conM[3] = s_p  [tempy][threadIdx.x]; // 这里 p 存 E(总能量) 或者压力
+
+        conD[0] = s_rho[tempy - 1][threadIdx.x];
+        conD[1] = s_vx [tempy - 1][threadIdx.x];
+        conD[2] = s_vy [tempy - 1][threadIdx.x];
+        conD[3] = s_p  [tempy - 1][threadIdx.x];
+
+        conU[0] = s_rho[tempy + 1][threadIdx.x];
+        conU[1] = s_vx [tempy + 1][threadIdx.x];
+        conU[2] = s_vy [tempy + 1][threadIdx.x];
+        conU[3] = s_p  [tempy + 1][threadIdx.x];
+
+        // 斜率限制
+        double tempD[4], tempU[4];
+        for (int k = 0; k < 4; k++) {
+            double temp1 = conM[k] - conD[k];  // (i,j) - (i,j-1)
+            double temp2 = conU[k] - conM[k];  // (i,j+1) - (i,j)
+
+            double di = 0.5 * (temp1 + temp2);
+
+            double phiL = limiterL2(temp1, temp2);
+            double phiR = limiterR2(temp1, temp2);
+
+            // 得到上下临时状态
+            tempD[k] = conM[k] - 0.5 * di * phiL;
+            tempU[k] = conM[k] + 0.5 * di * phiR;
+        }
+
+        // 转原始量并计算在 y 方向的通量 fluxD / fluxU
+        double priD[4], priU[4];
+        double fluxD[4], fluxU[4];
+        {
+            get_pri(tempD, priD);
+            get_pri(tempU, priU);
+            // 和 x 向不同：这里用 get_flux_y
+            get_flux_y(priD, fluxD);
+            get_flux_y(priU, fluxU);
+        }
+        // 半步更新
+        for (int k = 0; k < 4; k++) {
+            double delta = 0.5 * (dt / dy) * (fluxU[k] - fluxD[k]);
+            tempD[k] -= delta;
+            tempU[k] -= delta;
+        }
+
+        // 写入共享内存(半步) 
+        // 注意，这里只在 (BDIMY-2)×BDIMX 大小的数组中存储
+        int idx_y = threadIdx.y;  // 0 ~ (BDIMY - 3)
+        s_half_uD_rho[idx_y][threadIdx.x] = tempD[0];
+        s_half_uD_vx [idx_y][threadIdx.x] = tempD[1];
+        s_half_uD_vy [idx_y][threadIdx.x] = tempD[2];
+        s_half_uD_p  [idx_y][threadIdx.x] = tempD[3];
+
+        s_half_uU_rho[idx_y][threadIdx.x] = tempU[0];
+        s_half_uU_vx [idx_y][threadIdx.x] = tempU[1];
+        s_half_uU_vy [idx_y][threadIdx.x] = tempU[2];
+        s_half_uU_p  [idx_y][threadIdx.x] = tempU[3];
+    }
+
+    __syncthreads();
+
+    // --------------- 5. 计算 SLIC 通量 (y 方向) ---------------
+    // 类似 x 向时的 BDIMX - 3，这里是 BDIMY - 3
+    // threadIdx.y < BDIMY - 3, 保证可对上下界面做处理
+    if (threadIdx.y < BDIMY - 3 && jglobal < ny + 1 && iglobal < nx + 4)
+    {
+        // index_YD = threadIdx.y + 1, index_YU = threadIdx.y
+        int index_YD = threadIdx.y + 1;
+        int index_YU = threadIdx.y;
+
+        // half_D
+        double consD[4], consU[4];
+        {
+            consD[0] = s_half_uD_rho[index_YD][threadIdx.x];
+            consD[1] = s_half_uD_vx [index_YD][threadIdx.x];
+            consD[2] = s_half_uD_vy [index_YD][threadIdx.x];
+            consD[3] = s_half_uD_p  [index_YD][threadIdx.x];
+
+            // half_U
+            consU[0] = s_half_uU_rho[index_YU][threadIdx.x];
+            consU[1] = s_half_uU_vx [index_YU][threadIdx.x];
+            consU[2] = s_half_uU_vy [index_YU][threadIdx.x];
+            consU[3] = s_half_uU_p  [index_YU][threadIdx.x];
+        }
+
+        // 转原始量并计算 y 方向通量 fluxD / fluxU
+        double priD[4], priU[4];
+        double fluxD[4], fluxU[4];
+        get_pri(consD, priD);
+        get_pri(consU, priU);
+        get_flux_y(priD, fluxD);
+        get_flux_y(priU, fluxU);
+
+        // 计算 LF 与 RI_U
+        double LF[4], RI_Urr[4];
+        for (int k = 0; k < 4; k++) {
+            LF[k]    = 0.5 * (fluxD[k] + fluxU[k]) + 0.5 * (dy / dt) * (consU[k] - consD[k]);
+            RI_Urr[k]= 0.5 * (consD[k] + consU[k]) - 0.5 * (dt / dy) * (fluxD[k] - fluxU[k]);
+        }
+
+        // RI 通量
+        double pri_RI[4], flux_RI[4];
+        get_pri(RI_Urr, pri_RI);
+        get_flux_y(pri_RI, flux_RI);
+
+        // 最终 SLIC flux = 0.5 * (LF + RI)
+        double slic_flux[4];
+        for (int k = 0; k < 4; k++) {
+            slic_flux[k] = 0.5 * (LF[k] + flux_RI[k]);
+        }
+
+        // 写入共享内存
+        s_SLIC_flux_rho[index_YU][threadIdx.x] = slic_flux[0];
+        s_SLIC_flux_vx [index_YU][threadIdx.x] = slic_flux[1];
+        s_SLIC_flux_vy [index_YU][threadIdx.x] = slic_flux[2];
+        s_SLIC_flux_p  [index_YU][threadIdx.x] = slic_flux[3];
+    }
+
+    __syncthreads();
+
+    // --------------- 6. 用通量差分更新全局数据 ---------------
+    // 条件： jglobal < ny, iglobal < nx + 4 (与 x 向类似，留 2 ghost cells)
+    //        flux 的上下界面：threadIdx.y, threadIdx.y+1
+    if ( threadIdx.y < BDIMY - 4 && jglobal < ny && iglobal < nx + 4)
+    {
+        int idx_new = (jglobal + 2) * stride + iglobal;  // y 内部索引 + 2
+
+        // flux 下/上
+        int fluxY_bot = threadIdx.y;
+        int fluxY_top = threadIdx.y + 1;
+
+        double fluxB_rho = s_SLIC_flux_rho[fluxY_bot][threadIdx.x];
+        double fluxT_rho = s_SLIC_flux_rho[fluxY_top][threadIdx.x];
+        double fluxB_vx  = s_SLIC_flux_vx [fluxY_bot][threadIdx.x];
+        double fluxT_vx  = s_SLIC_flux_vx [fluxY_top][threadIdx.x];
+        double fluxB_vy  = s_SLIC_flux_vy [fluxY_bot][threadIdx.x];
+        double fluxT_vy  = s_SLIC_flux_vy [fluxY_top][threadIdx.x];
+        double fluxB_p   = s_SLIC_flux_p  [fluxY_bot][threadIdx.x];
+        double fluxT_p   = s_SLIC_flux_p  [fluxY_top][threadIdx.x];
+
+        // 更新
+        d_data_con.rho[idx_new] -= (dt / dy) * (fluxT_rho - fluxB_rho);
+        d_data_con.vx [idx_new] -= (dt / dy) * (fluxT_vx  - fluxB_vx );
+        d_data_con.vy [idx_new] -= (dt / dy) * (fluxT_vy  - fluxB_vy );
+        d_data_con.p  [idx_new] -= (dt / dy) * (fluxT_p   - fluxB_p  );
+    }
+}
 
     void launchUpdateSLICKernel(solVectors &d_data_con, double dt)
     {
+        solVectors d_half_uL, d_half_uR, d_SLIC_flux;
+        CUDA_CHECK(cudaMalloc((void**)&(d_half_uL.rho), (nx+1) * (ny+4) * sizeof(double)));
+        CUDA_CHECK(cudaMalloc((void**)&(d_half_uL.vx),  (nx+1) * (ny+4) * sizeof(double)));
+        CUDA_CHECK(cudaMalloc((void**)&(d_half_uL.vy),  (nx+1) * (ny+4) * sizeof(double)));
+        CUDA_CHECK(cudaMalloc((void**)&(d_half_uL.p),   (nx+1) * (ny+4) * sizeof(double)));
         dim3 block(BDIMX, BDIMY);
-        int overlap_x = 2;
+        int overlap_x = 4;
         dim3 grid(1 + (nx + 4 - BDIMX + (BDIMX - 2 * overlap_x) - 1) / (BDIMX - 2 * overlap_x),(ny + 4 + block.y - 1) / block.y);
-        std::cout << "grid.x: " << grid.x << " grid.y: " << grid.y << std::endl;
-        compute_x_shared<<<grid, block>>>(d_data_con, dt, dx, nx, ny);
+        // std::cout << "grid.x: " << grid.x << " grid.y: " << grid.y << std::endl;
+        compute_x_shared<<<grid, block>>>(d_data_con,d_half_uL, dt, dx, nx, ny);
         cudaDeviceSynchronize();
         cudaError_t err = cudaGetLastError();
         if (err != cudaSuccess) {
             std::cerr << "CUDA kernel launch failed: " << cudaGetErrorString(err) << std::endl;
             exit(-1);
         }
-        // 打印d_half_uR_rho结果
-        std::vector<double> h_half_uR_rho((nx+4) * (ny+4));
-        cudaMemcpy(h_half_uR_rho.data(), d_data_con.rho, sizeof(double) * (nx+4) * (ny+4), cudaMemcpyDeviceToHost);
+
+        std::vector<double> h_half_uR_rho((nx+1) * (ny+4));
+        cudaMemcpy(h_half_uR_rho.data(), d_half_uL.rho, sizeof(double) * (nx+1) * (ny+4), cudaMemcpyDeviceToHost);
         for (int j = 0; j < ny+4; j++) {
-            for (int i = 0; i < nx+4; i++) {
-                std::cout << h_half_uR_rho[j * (nx+4) + i] << " ";
+            for (int i = 0; i < nx+1; i++) {
+                std::cout << h_half_uR_rho[j * (nx+1) + i] << " ";
             }
             std::cout << std::endl;
         }
         exit(0);
+        
+        dim3 blocky(BDIMX, BDIMY);
+        int overlap_y = 4;
+        dim3 gridy((nx + 4 + block.x - 1) / block.x, 1+(ny + 4 - BDIMY + (BDIMY - 2 * overlap_y) - 1) / (BDIMY - 2 * overlap_y));
+        compute_y_shared<<<gridy, blocky>>>(d_data_con, dt, dy, nx, ny);
+        cudaDeviceSynchronize();
+        cudaError_t erry = cudaGetLastError();
+        if (erry != cudaSuccess) {
+            std::cerr << "CUDA kernel launch failed: " << cudaGetErrorString(erry) << std::endl;
+            exit(-1);
+        }
+        // 打印d_half_uR_rho结果
         
     }

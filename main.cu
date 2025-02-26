@@ -22,6 +22,7 @@ int main() {
         t = t + dt;
         applyBoundaryConditions(d_data_con);
         launchUpdateSLICKernel(d_data_con, dt);
+        
         // x 方向
         // computeHalftime(d_data_con,d_half_uL,d_half_uR,dt,1);
         // computeSLICFlux(d_half_uL,d_half_uR,d_SLIC_flux,dt,1);
@@ -32,7 +33,7 @@ int main() {
         // computeSLICFlux(d_half_uL,d_half_uR,d_SLIC_flux,dt,2);
         // updateSolution(d_data_con,d_SLIC_flux,dt,2);
         // freeDeviceMemory2(d_half_uL, d_half_uR, d_SLIC_flux);
-        // list_con2pri(d_data_con, d_data_pri);
+        list_con2pri(d_data_con, d_data_pri);
     }
     std::vector<double> h_rho((nx+4) * (ny+4), 0.0f);
     std::vector<double> h_vx((nx+4) * (ny+4), 0.0f);
