@@ -6,9 +6,9 @@ int main() {
     auto start = std::chrono::high_resolution_clock::now();
     solVectors d_data_pri;
     solVectors d_data_con;
-    solVectors d_half_uL;
-    solVectors d_half_uR;
-    solVectors d_SLIC_flux;
+    // solVectors d_half_uL;
+    // solVectors d_half_uR;
+    // solVectors d_SLIC_flux;
     allocateDeviceMemory(d_data_pri, d_data_con);
     initDataAndCopyToGPU(d_data_pri, d_data_con);
     double dt = 0.0;
@@ -19,9 +19,7 @@ int main() {
         std::cout << "step: "<< step << " dt = " << dt << std::endl;
         step++;
         applyBoundaryConditions(d_data_con);
-        launchUpdateSLICKernel(d_data_con, dt);
-        
-        // x 方向
+        // launchUpdateSLICKernel(d_data_con, dt);
         // computeHalftime(d_data_con,d_half_uL,d_half_uR,dt,1);
         // computeSLICFlux(d_half_uL,d_half_uR,d_SLIC_flux,dt,1);
         // updateSolution(d_data_con,d_SLIC_flux,dt,1);
@@ -35,15 +33,15 @@ int main() {
         if (t+dt >= t1) break;
         t = t + dt;
     }
-    std::vector<double> h_rho((nx+4) * (ny+4), 0.0f);
-    std::vector<double> h_vx((nx+4) * (ny+4), 0.0f);
-    std::vector<double> h_vy((nx+4) * (ny+4), 0.0f);
-    std::vector<double> h_p((nx+4) * (ny+4), 0.0f);
-    cudaMemcpy(h_rho.data(), d_data_pri.rho, sizeof(double) * (nx+4) * (ny+4), cudaMemcpyDeviceToHost);
-    cudaMemcpy(h_vx.data(), d_data_pri.vx, sizeof(double) * (nx+4) * (ny+4), cudaMemcpyDeviceToHost);
-    cudaMemcpy(h_vy.data(), d_data_pri.vy, sizeof(double) * (nx+4) * (ny+4), cudaMemcpyDeviceToHost);
-    cudaMemcpy(h_p.data(), d_data_pri.p, sizeof(double) * (nx+4) * (ny+4), cudaMemcpyDeviceToHost);
-    store_data(h_rho, h_vx, h_vy, h_p,dt,1);
+    // std::vector<double> h_rho((nx+4) * (ny+4), 0.0f);
+    // std::vector<double> h_vx((nx+4) * (ny+4), 0.0f);
+    // std::vector<double> h_vy((nx+4) * (ny+4), 0.0f);
+    // std::vector<double> h_p((nx+4) * (ny+4), 0.0f);
+    // cudaMemcpy(h_rho.data(), d_data_pri.rho, sizeof(double) * (nx+4) * (ny+4), cudaMemcpyDeviceToHost);
+    // cudaMemcpy(h_vx.data(), d_data_pri.vx, sizeof(double) * (nx+4) * (ny+4), cudaMemcpyDeviceToHost);
+    // cudaMemcpy(h_vy.data(), d_data_pri.vy, sizeof(double) * (nx+4) * (ny+4), cudaMemcpyDeviceToHost);
+    // cudaMemcpy(h_p.data(), d_data_pri.p, sizeof(double) * (nx+4) * (ny+4), cudaMemcpyDeviceToHost);
+    // store_data(h_rho, h_vx, h_vy, h_p,dt,1);
     auto end = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> elapsed = end - start;
     std::cout << "Time: " << elapsed.count() << " s\n";

@@ -931,9 +931,9 @@ void store_data(const std::vector<double> rho, const std::vector<double> vx, con
   }
   file.close();
 }
-    __global__ void compute_x_shared (
+
+__global__ void compute_x_shared (
         solVectors d_data_con,
-        solVectors d_half_uL, 
         double dt,
         double dx,
         int nx,
@@ -955,6 +955,7 @@ void store_data(const std::vector<double> rho, const std::vector<double> vx, con
         __shared__ double s_SLIC_flux_vx [BDIMY][BDIMX-3];
         __shared__ double s_SLIC_flux_vy [BDIMY][BDIMX-3];
         __shared__ double s_SLIC_flux_p  [BDIMY][BDIMX-3];
+        
         int iglobal = (blockIdx.x == 0) ? threadIdx.x : (BDIMX - 4) + (BDIMX - 4) * (blockIdx.x - 1) + threadIdx.x;
         int jglobal = blockIdx.y * BDIMY + threadIdx.y;
         int stride = nx + 4;
@@ -1029,11 +1030,6 @@ void store_data(const std::vector<double> rho, const std::vector<double> vx, con
             
         }
         __syncthreads();
-        // if (iglobal == 13 && jglobal == 0) {
-        //     printf("iglobal = %d, jglobal = %d\n", iglobal, jglobal);
-        //     printf("s_half_uL_rho = %f\n", s_half_uL_rho[threadIdx.y][threadIdx.x]);
-        // }
-        // start to calualate the SLIC flux
         if(threadIdx.x < BDIMX - 3 && iglobal < nx + 1 && jglobal < ny + 4){
             int index_XL = threadIdx.x + 1;
             int index_XR = threadIdx.x;
@@ -1074,11 +1070,6 @@ void store_data(const std::vector<double> rho, const std::vector<double> vx, con
             for (int k = 0; k < 4; k++) {
                 slic_flux[k] = 0.5 * (LF[k] + RI[k]);
             }
-            // int out_idx = jglobal * (nx + 1) + iglobal;
-            // d_half_uL.rho[out_idx] = slic_flux[0];
-            // d_half_uL.vx [out_idx] = slic_flux[1];
-            // d_half_uL.vy [out_idx] = slic_flux[2];
-            // d_half_uL.p  [out_idx] = slic_flux[3];
             s_SLIC_flux_rho[threadIdx.y][threadIdx.x] = slic_flux[0];
             s_SLIC_flux_vx [threadIdx.y][threadIdx.x] = slic_flux[1];
             s_SLIC_flux_vy [threadIdx.y][threadIdx.x] = slic_flux[2];
@@ -1096,9 +1087,8 @@ void store_data(const std::vector<double> rho, const std::vector<double> vx, con
         }
     }
 
-    __global__ void compute_y_shared (
+__global__ void compute_y_shared (
         solVectors d_data_con,
-        solVectors d_half_uL, 
         double dt,
         double dy,
         int nx,
@@ -1120,8 +1110,7 @@ void store_data(const std::vector<double> rho, const std::vector<double> vx, con
         __shared__ double s_SLIC_flux_vx [BDIMY-3][BDIMX];
         __shared__ double s_SLIC_flux_vy [BDIMY-3][BDIMX];
         __shared__ double s_SLIC_flux_p  [BDIMY-3][BDIMX];
-        // int iglobal = (blockIdx.x == 0) ? threadIdx.x : (BDIMX - 4) + (BDIMX - 4) * (blockIdx.x - 1) + threadIdx.x;
-        // int jglobal = blockIdx.y * BDIMY + threadIdx.y;
+
         int iglobal = blockIdx.x * blockDim.x + threadIdx.x;
         int jglobal = (blockIdx.y == 0) ? threadIdx.y : (BDIMY - 4) + (BDIMY - 4) * (blockIdx.y - 1) + threadIdx.y;
         int stride = nx + 4;
@@ -1196,11 +1185,6 @@ void store_data(const std::vector<double> rho, const std::vector<double> vx, con
             
         }
         __syncthreads();
-        // if (iglobal == 13 && jglobal == 0) {
-        //     printf("iglobal = %d, jglobal = %d\n", iglobal, jglobal);
-        //     printf("s_half_uL_rho = %f\n", s_half_uL_rho[threadIdx.y][threadIdx.x]);
-        // }
-        // start to calualate the SLIC flux
         if(threadIdx.y < BDIMY - 3 && iglobal < nx + 4 && jglobal < ny + 1){
             int index_YL = threadIdx.y + 1;
             int index_YR = threadIdx.y;
@@ -1241,11 +1225,6 @@ void store_data(const std::vector<double> rho, const std::vector<double> vx, con
             for (int k = 0; k < 4; k++) {
                 slic_flux[k] = 0.5 * (LF[k] + RI[k]);
             }
-            // int out_idx = jglobal * (nx + 1) + iglobal;
-            // d_half_uL.rho[out_idx] = slic_flux[0];
-            // d_half_uL.vx [out_idx] = slic_flux[1];
-            // d_half_uL.vy [out_idx] = slic_flux[2];
-            // d_half_uL.p  [out_idx] = slic_flux[3];
             s_SLIC_flux_rho[threadIdx.y][threadIdx.x] = slic_flux[0];
             s_SLIC_flux_vx[threadIdx.y][threadIdx.x] = slic_flux[1];
             s_SLIC_flux_vy[threadIdx.y][threadIdx.x] = slic_flux[2];
@@ -1265,42 +1244,12 @@ void store_data(const std::vector<double> rho, const std::vector<double> vx, con
 
     void launchUpdateSLICKernel(solVectors &d_data_con, double dt)
     {
-        solVectors d_half_uL, d_half_uR, d_SLIC_flux;
-        CUDA_CHECK(cudaMalloc((void**)&(d_half_uL.rho), (nx+1) * (ny+4) * sizeof(double)));
-        CUDA_CHECK(cudaMalloc((void**)&(d_half_uL.vx),  (nx+1) * (ny+4) * sizeof(double)));
-        CUDA_CHECK(cudaMalloc((void**)&(d_half_uL.vy),  (nx+1) * (ny+4) * sizeof(double)));
-        CUDA_CHECK(cudaMalloc((void**)&(d_half_uL.p),   (nx+1) * (ny+4) * sizeof(double)));
         dim3 block(BDIMX, BDIMY);
         int overlap_x = 4;
         dim3 grid(1 + (nx + 4 - BDIMX + (BDIMX - 2 * overlap_x) - 1) / (BDIMX - 2 * overlap_x),(ny + 4 + block.y - 1) / block.y);
-        // std::cout << "grid.x: " << grid.x << " grid.y: " << grid.y << std::endl;
-        compute_x_shared<<<grid, block>>>(d_data_con,d_half_uL, dt, dx, nx, ny);
-        cudaDeviceSynchronize();
-        cudaError_t err = cudaGetLastError();
-        if (err != cudaSuccess) {
-            std::cerr << "CUDA kernel launch failed: " << cudaGetErrorString(err) << std::endl;
-            exit(-1);
-        }
-        // std::vector<double> h_half_uR_rho((nx+4) * (ny+4));
-        // cudaMemcpy(h_half_uR_rho.data(), d_data_con.rho, sizeof(double) * (nx+4) * (ny+4), cudaMemcpyDeviceToHost);
-        // for (int j = 0; j < ny+4; j++) {
-        //     for (int i = 0; i < nx+4; i++) {
-        //         std::cout << h_half_uR_rho[j * (nx+4) + i] << " ";
-        //     }
-        //     std::cout << std::endl;
-        // }
-        // exit(0);
-        
+        compute_x_shared<<<grid, block>>>(d_data_con, dt, dx, nx, ny);
         dim3 blocky(BDIMX, BDIMY);
         int overlap_y = 4;
         dim3 gridy((nx + 4 + block.x - 1) / block.x, 1+(ny + 4 - BDIMY + (BDIMY - 2 * overlap_y) - 1) / (BDIMY - 2 * overlap_y));
-        compute_y_shared<<<gridy, blocky>>>(d_data_con,d_half_uL, dt, dy, nx, ny);
-        cudaDeviceSynchronize();
-        cudaError_t erry = cudaGetLastError();
-        if (erry != cudaSuccess) {
-            std::cerr << "CUDA kernel launch failed: " << cudaGetErrorString(erry) << std::endl;
-            exit(-1);
-        }
-        // 打印d_half_uR_rho结果
-        
+        compute_y_shared<<<gridy, blocky>>>(d_data_con, dt, dy, nx, ny);
     }

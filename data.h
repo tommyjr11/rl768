@@ -12,17 +12,11 @@
             exit(-1); \
         } \
     }
-// 在此简单规定网格数量（例如一维 N=1000）
-#define NX 1000
-#define NY 1000
-#define HALFX (NX + 2)
-#define HALFY (NY + 4)
-#define HALF_SIZE (HALFX * HALFY)
-#define SLIC_SIZE ((NX + 1) * (NY + 4))
+
 #define BDIMX 16
 #define BDIMY 16
-const int nx = NX;
-const int ny = NY;
+const int nx = 800;
+const int ny = 800;
 const int ghost = 2;
 const double C = 0.8;
 const double t0 = 0.0;
