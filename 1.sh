@@ -1,4 +1,4 @@
 rm -rf data/*.csv
 make clean
-make
+make 
 ./slic

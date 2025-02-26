@@ -313,6 +313,42 @@ void applyBoundaryConditions(solVectors &d_u) {
         }
 }
 
+// __device__ double limiterL2(double smaller, double larger) {
+//     // 把 "larger == 0" 的情况合并成一次三元运算
+//     // 若 (larger == 0 && smaller != 0) => slope = 1
+//     // 若 (larger == 0 && smaller == 0) => slope = 0
+//     // 否则 => slope = smaller / larger
+//     double slope = (larger == 0.0) 
+//                      ? ((smaller == 0.0) ? 0.0 : 1.0)
+//                      : (smaller / larger);
+
+//     // 把负值直接截断为 0
+//     slope = fmax(0.0, slope);
+
+//     // 当 slope > 1 的时候，用 2*slope/(1+slope)，否则就用 slope，
+//     // 再额外与 1.0 做一次 fmin。
+//     // 这样就相当于把 “0 < R <= 1 => R；R > 1 => 2R/(1+R) 再与1比较” 的逻辑合并了
+//     double limiter = 2.0 * slope / (1.0 + slope);          // 对应 "2R/(1+R)"
+//     double limited = fmin(slope, limiter);                // 相当于 if (slope > 1) 走 limiter，否则走 slope
+//     return fmin(1.0, limited);        
+// }
+
+// __device__ double limiterR2(double smaller, double larger) {
+//     // 若 larger == 0.0，无论 smaller 是否为0，都令 slope=0，效果等同：
+//     //   smaller == 0 => slope=0
+//     //   smaller != 0 => return 0（一样是0）
+//     double slope = (larger == 0.0) ? 0.0 : (smaller / larger);
+
+//     // 负值截断为0
+//     slope = fmax(0.0, slope);
+
+//     // 若 slope > 1 => 用 2/(1+slope)，否则是 slope，
+//     // 最后再与 1.0 做比较
+//     double limiter = 2.0 / (1.0 + slope);      
+//     double limited = fmin(slope, limiter);
+//     return fmin(1.0, limited);
+// }
+
 __device__ double limiterL2(double smaller, double larger) {
     double R_slope = 0.0;
     if (smaller == 0 && larger == 0){
@@ -360,6 +396,58 @@ __device__ double limiterR2(double smaller, double larger) {
         return fmin(1.0, temp2);
     }
 }
+
+// __device__ double limiterL2(double smaller, double larger)
+// {
+//     // 1) 若 larger == 0.0，则根据 smaller 是否为 0 决定返回值
+//     //    原逻辑： (larger==0 && smaller==0) => 0, (larger==0 && smaller!=0) => 1
+//     if (larger == 0.0) {
+//         if (smaller == 0.0) {
+//             return 0.0;
+//         } else {
+//             return 1.0;
+//         }
+//     }
+
+//     // 2) 计算 slope
+//     double slope = smaller / larger;
+
+//     // 3) 若 slope <= 0，直接返回 0
+//     if (slope <= 0.0) {
+//         return 0.0;
+//     }
+
+//     // 4) 使用“少分支”公式
+//     //    若 slope <= 1 => 返回 slope
+//     //    若 slope > 1  => 返回 2*slope / (1 + slope)，然后与 1 比较
+//     //    我们可用 fmin 来把这两种情况统一写出来
+//     double limiter = 2.0 * slope / (1.0 + slope);   // 对应 "2R/(1+R)" 公式
+//     double limited = fmin(slope, limiter);          // 若 slope>1 时 limited=limiter，否则= slope
+//     return fmin(1.0, limited);                      // 再与 1.0 比较
+// }
+// __device__ double limiterR2(double smaller, double larger)
+// {
+//     // 1) 若 larger == 0.0，则根据原逻辑可知无论 smaller 为 0 与否都返回 0.0
+//     //    (因为原先: if (smaller != 0 && larger==0) => return 0; if (smaller==0 && larger==0) => slope=0 => 0)
+//     if (larger == 0.0) {
+//         return 0.0;
+//     }
+
+//     // 2) 计算 slope
+//     double slope = smaller / larger;
+
+//     // 3) 若 slope <= 0，直接返回 0
+//     if (slope <= 0.0) {
+//         return 0.0;
+//     }
+
+//     // 4) 若 slope <= 1 => 结果即 slope
+//     //    若 slope > 1  => 2/(1 + slope) 再与 1 比较
+//     double limiter = 2.0 / (1.0 + slope);
+//     double limited = fmin(slope, limiter);
+//     return fmin(1.0, limited);
+// }
+
 
 __device__ void get_flux_x(const double *pri, double *flux) {
     flux[0] = pri[0]*pri[1];
@@ -946,24 +1034,6 @@ __global__ void compute_x_shared (
         int nx,
         int ny)
     {
-        // __shared__ double s_rho[BDIMX_Y][BDIMX_X];
-        // __shared__ double s_vx [BDIMX_Y][BDIMX_X];
-        // __shared__ double s_vy [BDIMX_Y][BDIMX_X];
-        // __shared__ double s_p  [BDIMX_Y][BDIMX_X];
-        // __shared__ double s_half_uL_rho[BDIMX_Y][BDIMX_X-2];
-        // __shared__ double s_half_uL_vx [BDIMX_Y][BDIMX_X-2];
-        // __shared__ double s_half_uL_vy [BDIMX_Y][BDIMX_X-2];
-        // __shared__ double s_half_uL_p  [BDIMX_Y][BDIMX_X-2];
-        // __shared__ double s_half_uR_rho[BDIMX_Y][BDIMX_X-2];
-        // __shared__ double s_half_uR_vx [BDIMX_Y][BDIMX_X-2];
-        // __shared__ double s_half_uR_vy [BDIMX_Y][BDIMX_X-2];
-        // __shared__ double s_half_uR_p  [BDIMX_Y][BDIMX_X-2];
-        // __shared__ double s_SLIC_flux_rho[BDIMX_Y][BDIMX_X-3];
-        // __shared__ double s_SLIC_flux_vx [BDIMX_Y][BDIMX_X-3];
-        // __shared__ double s_SLIC_flux_vy [BDIMX_Y][BDIMX_X-3];
-        // __shared__ double s_SLIC_flux_p  [BDIMX_Y][BDIMX_X-3];
-
-
         __shared__ double temp1_rho[BDIMX_Y][BDIMX_X];
         __shared__ double temp1_vx [BDIMX_Y][BDIMX_X];
         __shared__ double temp1_vy [BDIMX_Y][BDIMX_X];
@@ -1114,22 +1184,6 @@ __global__ void compute_y_shared (
         int nx,
         int ny)
     {
-        // __shared__ double s_rho[BDIMY_Y][BDIMY_X];
-        // __shared__ double s_vx [BDIMY_Y][BDIMY_X];
-        // __shared__ double s_vy [BDIMY_Y][BDIMY_X];
-        // __shared__ double s_p  [BDIMY_Y][BDIMY_X];
-        // __shared__ double s_half_uL_rho[BDIMY_Y-2][BDIMY_X];
-        // __shared__ double s_half_uL_vx [BDIMY_Y-2][BDIMY_X];
-        // __shared__ double s_half_uL_vy [BDIMY_Y-2][BDIMY_X];
-        // __shared__ double s_half_uL_p  [BDIMY_Y-2][BDIMY_X];
-        // __shared__ double s_half_uR_rho[BDIMY_Y-2][BDIMY_X];
-        // __shared__ double s_half_uR_vx [BDIMY_Y-2][BDIMY_X];
-        // __shared__ double s_half_uR_vy [BDIMY_Y-2][BDIMY_X];
-        // __shared__ double s_half_uR_p  [BDIMY_Y-2][BDIMY_X];
-        // __shared__ double s_SLIC_flux_rho[BDIMY_Y-3][BDIMY_X];
-        // __shared__ double s_SLIC_flux_vx [BDIMY_Y-3][BDIMY_X];
-        // __shared__ double s_SLIC_flux_vy [BDIMY_Y-3][BDIMY_X];
-        // __shared__ double s_SLIC_flux_p  [BDIMY_Y-3][BDIMY_X];
 
         __shared__ double temp1_rho[BDIMY_Y][BDIMY_X];
         __shared__ double temp1_vx [BDIMY_Y][BDIMY_X];

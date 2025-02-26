@@ -13,12 +13,12 @@
         } \
     }
 
-#define BDIMX_X 64
-#define BDIMX_Y 6
-#define BDIMY_X 6
-#define BDIMY_Y 64
-#define nx_point 800
-#define ny_point 800
+#define BDIMX_X 32
+#define BDIMX_Y 8
+#define BDIMY_X 8
+#define BDIMY_Y 32
+#define nx_point 400
+#define ny_point 400
 #define SHARE_X_GRID_X (1+(nx_point + 4 - BDIMX_X)/(BDIMX_X - 4))
 #define SHARE_X_GRID_Y ((ny_point + 4 + BDIMX_Y - 1) / BDIMX_Y)
 #define SHARE_Y_GRID_Y (1+(ny_point + 4 - BDIMY_Y)/(BDIMY_Y - 4))
