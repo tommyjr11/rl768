@@ -2,7 +2,6 @@
 #ifndef DATA_H
 #define DATA_H
 #include <cuda_runtime.h>
-#include "help_function.h"
 #include <vector>
 #define CUDA_CHECK(call) \
     { \
@@ -14,8 +13,8 @@
         } \
     }
 // 在此简单规定网格数量（例如一维 N=1000）
-#define NX 800
-#define NY 800
+#define NX 1000
+#define NY 1000
 #define HALFX (NX + 2)
 #define HALFY (NY + 4)
 #define HALF_SIZE (HALFX * HALFY)

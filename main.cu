@@ -15,11 +15,9 @@ int main() {
     double t = 0.0;
     int step = 0;
     for (;;){
-        dt = getdtGPU(d_data_pri, 1.4f);
+        dt = getdtGPU(d_data_pri, 1.4);
         std::cout << "step: "<< step << " dt = " << dt << std::endl;
         step++;
-        if (t >= t1) break;
-        t = t + dt;
         applyBoundaryConditions(d_data_con);
         launchUpdateSLICKernel(d_data_con, dt);
         
@@ -34,6 +32,8 @@ int main() {
         // updateSolution(d_data_con,d_SLIC_flux,dt,2);
         // freeDeviceMemory2(d_half_uL, d_half_uR, d_SLIC_flux);
         list_con2pri(d_data_con, d_data_pri);
+        if (t+dt >= t1) break;
+        t = t + dt;
     }
     std::vector<double> h_rho((nx+4) * (ny+4), 0.0f);
     std::vector<double> h_vx((nx+4) * (ny+4), 0.0f);
