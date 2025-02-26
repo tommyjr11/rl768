@@ -8,6 +8,7 @@
 #include <sstream>
 #include <iomanip>
 
+
 void allocateDeviceMemory(solVectors &d_data_pri, solVectors &d_data_con) {
     CUDA_CHECK(cudaMalloc((void**)&(d_data_pri.rho), (nx+4) * (ny+4) * sizeof(double)));
     CUDA_CHECK(cudaMalloc((void**)&(d_data_pri.vx),  (nx+4) * (ny+4) * sizeof(double)));
@@ -88,7 +89,7 @@ __global__ void kernel_con2pri(const solVectors d_data_con, solVectors d_data_pr
     }
 }
 
-void initDataAndCopyToGPU(solVectors &d_data_pri,solVectors d_data_con)
+void initDataAndCopyToGPU1(solVectors &d_data_pri,solVectors d_data_con)
 {
     std::vector<double> h_rho((nx+4) * (ny+4), 0.0);
     std::vector<double> h_vx ((nx+4) * (ny+4), 0.0);
@@ -145,7 +146,64 @@ void initDataAndCopyToGPU(solVectors &d_data_pri,solVectors d_data_con)
     kernel_pri2con<<<gridSize, blockSize>>>(d_data_pri, d_data_con, nx, ny);
     cudaDeviceSynchronize();
 }
+// void initDataAndCopyToGPU2(solVectors &d_data_pri, solVectors d_data_con)
+// {
+//     std::vector<double> h_rho((nx+4) * (ny+4), 0.0);
+//     std::vector<double> h_vx ((nx+4) * (ny+4), 0.0);
+//     std::vector<double> h_vy ((nx+4) * (ny+4), 0.0);
+//     std::vector<double> h_p  ((nx+4) * (ny+4), 0.0);
 
+//     // 初始化
+//     for (int j = 0; j < ny+4; j++) {
+//         for (int i = 0; i < nx+4; i++) {
+//             int idx = j * (nx+4) + i;
+
+//             // 将(i,j)映射到物理坐标 (x, y)，中心点略加0.5 * dx(or dy)
+//             double x = (i - ghost + 0.5f) * dx; 
+//             double y = (j - ghost + 0.5f) * dy;
+
+//             // 先设为空气
+//             if (x < xShock) {
+//                 // 激波后空气(左侧)
+//                 h_rho[idx] = rhoPost;
+//                 h_vx [idx] = uPost;
+//                 h_vy [idx] = vPost;
+//                 h_p  [idx] = pPost;
+//             } else {
+//                 // 未受激波空气(右侧)
+//                 h_rho[idx] = rhoAir;
+//                 h_vx [idx] = uAir;
+//                 h_vy [idx] = vAir;
+//                 h_p  [idx] = pAir;
+//             }
+
+//             // 判断是否在气泡内（这一步覆盖掉空气的设定）
+//             double dxBubble = x - bubbleXc;
+//             double dyBubble = y - bubbleYc;
+//             if ( (dxBubble*dxBubble + dyBubble*dyBubble) <= bubbleR*bubbleR ) {
+//                 // 落在气泡区域
+//                 h_rho[idx] = rhoHe; 
+//                 // 氦气泡与外界等压、速度为零
+//                 h_vx [idx] = 0.0;
+//                 h_vy [idx] = 0.0;
+//                 h_p  [idx] = pAir;  // 与外界相同压强
+//             }
+//         }
+//     }
+
+//     // 拷贝到 GPU
+//     size_t sizeBytes = (nx+4) * (ny+4) * sizeof(double);
+//     CUDA_CHECK(cudaMemcpy(d_data_pri.rho, h_rho.data(), sizeBytes, cudaMemcpyHostToDevice));
+//     CUDA_CHECK(cudaMemcpy(d_data_pri.vx,  h_vx.data(),  sizeBytes, cudaMemcpyHostToDevice));
+//     CUDA_CHECK(cudaMemcpy(d_data_pri.vy,  h_vy.data(),  sizeBytes, cudaMemcpyHostToDevice));
+//     CUDA_CHECK(cudaMemcpy(d_data_pri.p,   h_p.data(),   sizeBytes, cudaMemcpyHostToDevice));
+
+//     // 将 d_data_pri 的数据转换为守恒量并拷到 d_data_con
+//     dim3 blockSize(16, 16);
+//     dim3 gridSize((nx+4+15)/16, (ny+4+15)/16);
+//     kernel_pri2con<<<gridSize, blockSize>>>(d_data_pri, d_data_con, nx, ny);
+//     cudaDeviceSynchronize();
+// }
 __global__ void getMaxSpeedKernel(
     const double* __restrict__ rho,
     const double* __restrict__ vx,
@@ -194,6 +252,9 @@ __global__ void getMaxSpeedKernel(
         blockMax[blockIdx.x] = localMax;
     }
 }
+
+
+
 
 
 double getmaxspeedGPU(const solVectors &d_data_pri, double r)
@@ -245,7 +306,7 @@ double getdtGPU(const solVectors &d_data_pri, double r)
 
 // 内核函数：更新左右边界
 __global__ void boundary_left_right(solVectors u, int truenx, int trueny) {
-    int i = blockIdx.y * blockDim.y + threadIdx.y;
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i < trueny) {
         int rowStart = i * truenx;
         // 左边界：将第0列和第1列赋值为第2列的值
@@ -1331,7 +1392,7 @@ __global__ void compute_y_shared (
         dim3 block(BDIMX_X, BDIMX_Y);
         dim3 grid(SHARE_X_GRID_X,SHARE_X_GRID_Y);
         compute_x_shared<<<grid, block>>>(d_data_con, dt, dx, nx, ny);
-        // cudaDeviceSynchronize();
+        cudaDeviceSynchronize();
         // cudaError_t err2 = cudaGetLastError();
         // if (err2 != cudaSuccess) {
         //     std::cerr << "CUDA kernel launch failed in share X s: " 
@@ -1341,7 +1402,7 @@ __global__ void compute_y_shared (
         dim3 blocky(BDIMY_X, BDIMY_Y);
         dim3 gridy(SHARE_Y_GRID_X, SHARE_Y_GRID_Y);
         compute_y_shared<<<gridy, blocky>>>(d_data_con, dt, dy, nx, ny);
-        // cudaDeviceSynchronize();
+        cudaDeviceSynchronize();
         // cudaError_t err = cudaGetLastError();
         // if (err != cudaSuccess) {
         //     std::cerr << "CUDA kernel launch failed in share Y: " 
@@ -1349,3 +1410,26 @@ __global__ void compute_y_shared (
         //     exit(-1);
         // }
     }
+
+
+    void checkKernelAttributes() {
+    cudaFuncAttributes attr;
+
+    cudaFuncGetAttributes(&attr, compute_x_shared);
+    std::cout << "=== compute_x_shared Kernel Attributes ===" << std::endl;
+    std::cout << "Registers used: " << attr.numRegs << std::endl;
+    std::cout << "Shared memory per block: " << attr.sharedSizeBytes << " bytes" << std::endl;
+    std::cout << "Constant memory used: " << attr.constSizeBytes << " bytes" << std::endl;
+    std::cout << "Local memory per thread: " << attr.localSizeBytes << " bytes" << std::endl;
+    std::cout << "Max threads per block: " << attr.maxThreadsPerBlock << std::endl;
+    std::cout << std::endl;
+
+    cudaFuncGetAttributes(&attr, compute_y_shared);
+    std::cout << "=== compute_y_shared Kernel Attributes ===" << std::endl;
+    std::cout << "Registers used: " << attr.numRegs << std::endl;
+    std::cout << "Shared memory per block: " << attr.sharedSizeBytes << " bytes" << std::endl;
+    std::cout << "Constant memory used: " << attr.constSizeBytes << " bytes" << std::endl;
+    std::cout << "Local memory per thread: " << attr.localSizeBytes << " bytes" << std::endl;
+    std::cout << "Max threads per block: " << attr.maxThreadsPerBlock << std::endl;
+    std::cout << std::endl;
+}
