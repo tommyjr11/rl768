@@ -1,5 +1,5 @@
 rm -rf data/*.csv
 make clean
-make 
+make ACCURATE=1 Debug=1
 ./slic
 

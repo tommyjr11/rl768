@@ -1264,6 +1264,7 @@ __global__ void compute_x_shared (
             d_data_con.vy[idx]  = d_data_con.vy[idx]  - (dt/dx) * (temp1_vy [threadIdx.y][threadIdx.x + 1] - temp1_vy [threadIdx.y][threadIdx.x]);
             d_data_con.p[idx]   = d_data_con.p[idx]   - (dt/dx) * (temp1_p  [threadIdx.y][threadIdx.x + 1] - temp1_p  [threadIdx.y][threadIdx.x]);
         }
+        __syncthreads();
     }
 
 __global__ void compute_y_shared (
@@ -1413,6 +1414,7 @@ __global__ void compute_y_shared (
             d_data_con.vy[idx]  = d_data_con.vy[idx]  - (dt/dy) * (temp1_vy [threadIdx.y+1][threadIdx.x] - temp1_vy [threadIdx.y][threadIdx.x]);
             d_data_con.p[idx]   = d_data_con.p[idx]   - (dt/dy) * (temp1_p  [threadIdx.y+1][threadIdx.x] - temp1_p  [threadIdx.y][threadIdx.x]);
         }
+        __syncthreads();
     }
 
 
@@ -1424,25 +1426,25 @@ __global__ void compute_shared (
         int nx,
         int ny)
     {
-        __shared__ double temp1_rho[BDIMX_Y][BDIMX_X];
-        __shared__ double temp1_vx [BDIMX_Y][BDIMX_X];
-        __shared__ double temp1_vy [BDIMX_Y][BDIMX_X];
-        __shared__ double temp1_p  [BDIMX_Y][BDIMX_X];
+        __shared__ double temp1_rho[BDIMY_Y][BDIMX_X];
+        __shared__ double temp1_vx [BDIMY_Y][BDIMX_X];
+        __shared__ double temp1_vy [BDIMY_Y][BDIMX_X];
+        __shared__ double temp1_p  [BDIMY_Y][BDIMX_X];
 
-        __shared__ double temp2_rho[BDIMX_Y][BDIMX_X];
-        __shared__ double temp2_vx [BDIMX_Y][BDIMX_X];
-        __shared__ double temp2_vy [BDIMX_Y][BDIMX_X];
-        __shared__ double temp2_p  [BDIMX_Y][BDIMX_X];
+        __shared__ double temp2_rho[BDIMY_Y][BDIMX_X];
+        __shared__ double temp2_vx [BDIMY_Y][BDIMX_X];
+        __shared__ double temp2_vy [BDIMY_Y][BDIMX_X];
+        __shared__ double temp2_p  [BDIMY_Y][BDIMX_X];
 
-        __shared__ double temp3_rho[BDIMY_Y][BDIMY_X];
-        __shared__ double temp3_vx [BDIMY_Y][BDIMY_X];
-        __shared__ double temp3_vy [BDIMY_Y][BDIMY_X];
-        __shared__ double temp3_p  [BDIMY_Y][BDIMY_X];
+        __shared__ double temp3_rho[BDIMY_Y][BDIMX_X];
+        __shared__ double temp3_vx [BDIMY_Y][BDIMX_X];
+        __shared__ double temp3_vy [BDIMY_Y][BDIMX_X];
+        __shared__ double temp3_p  [BDIMY_Y][BDIMX_X];
 
 
 
         int iglobal = (blockIdx.x == 0) ? threadIdx.x : (BDIMX_X) + (BDIMX_X - 4) * (blockIdx.x - 1) + threadIdx.x-4;
-        int jglobal = (blockIdx.y == 0) ? threadIdx.y : (BDIMX_Y) + (BDIMX_Y - 4) * (blockIdx.y - 1) + threadIdx.y-4;
+        int jglobal = (blockIdx.y == 0) ? threadIdx.y : (BDIMY_Y) + (BDIMY_Y - 4) * (blockIdx.y - 1) + threadIdx.y-4;
         int stride = nx + 4;
         if (iglobal >= nx + 4 || jglobal >= ny + 4) {
             return;
@@ -1453,7 +1455,7 @@ __global__ void compute_shared (
         temp1_vy [threadIdx.y][threadIdx.x] = d_data_con.vy [idx];
         temp1_p  [threadIdx.y][threadIdx.x] = d_data_con.p  [idx];
         __syncthreads();
-        if (threadIdx.x < BDIMX_X - 2  && threadIdx.y < BDIMX_Y && iglobal < nx + 2 && jglobal < ny + 4) {
+        if (threadIdx.x < BDIMX_X - 2  && threadIdx.y < BDIMY_Y && iglobal < nx + 2 && jglobal < ny + 4) {
             int tempx = threadIdx.x + 1;
             double conM[4];  // con(i,j)
             double conL[4];  // con(i-1,j)
@@ -1571,7 +1573,7 @@ __global__ void compute_shared (
 
 
         __syncthreads();
-        if (threadIdx.y < BDIMY_Y - 2  && threadIdx.x < BDIMY_X && iglobal < nx + 4 && jglobal < ny + 2) {
+        if (threadIdx.y < BDIMY_Y - 2  && threadIdx.x < BDIMX_X && iglobal < nx + 4 && jglobal < ny + 2) {
             int tempy = threadIdx.y + 1;
             double conM[4];  // con(i,j)
             double conL[4];  // con(i-1,j)
@@ -1680,24 +1682,22 @@ __global__ void compute_shared (
         }
         __syncthreads();
         // start to update the data
-        if (threadIdx.y < BDIMY_Y - 4 && iglobal < nx + 4 && jglobal < ny) {
-            int stride_old = nx + 4;
-            int idx = (jglobal+2) * stride_old + iglobal;
-            temp1_rho[threadIdx.y+2][threadIdx.x] = temp1_rho[threadIdx.y+2][threadIdx.x] - (dt/dy) * (temp2_rho[threadIdx.y+1][threadIdx.x] - temp2_rho[threadIdx.y][threadIdx.x]);
-            temp1_vx[threadIdx.y+2][threadIdx.x]  = temp1_vx[threadIdx.y+2][threadIdx.x]  - (dt/dy) * (temp2_vx [threadIdx.y+1][threadIdx.x] - temp2_vx [threadIdx.y][threadIdx.x]);
-            temp1_vy[threadIdx.y+2][threadIdx.x] = temp1_vy[threadIdx.y+2][threadIdx.x]  - (dt/dy) * (temp2_vy [threadIdx.y+1][threadIdx.x] - temp2_vy [threadIdx.y][threadIdx.x]);
-            temp1_p[threadIdx.y+2][threadIdx.x]   = temp1_p[threadIdx.y+2][threadIdx.x]   - (dt/dy) * (temp2_p  [threadIdx.y+1][threadIdx.x] - temp2_p  [threadIdx.y][threadIdx.x]);
+        if (threadIdx.y < BDIMY_Y - 4   && iglobal < nx && jglobal < ny) {
+            temp1_rho[threadIdx.y+2][threadIdx.x] = temp1_rho[threadIdx.y+2][threadIdx.x]  - (dt/dy) * (temp2_rho[threadIdx.y+1][threadIdx.x] - temp2_rho[threadIdx.y][threadIdx.x]);
+            temp1_vx [threadIdx.y+2][threadIdx.x] = temp1_vx [threadIdx.y+2][threadIdx.x]  - (dt/dy) * (temp2_vx [threadIdx.y+1][threadIdx.x] - temp2_vx [threadIdx.y][threadIdx.x]);
+            temp1_vy [threadIdx.y+2][threadIdx.x] = temp1_vy [threadIdx.y+2][threadIdx.x]  - (dt/dy) * (temp2_vy [threadIdx.y+1][threadIdx.x] - temp2_vy [threadIdx.y][threadIdx.x]);
+            temp1_p  [threadIdx.y+2][threadIdx.x]  = temp1_p  [threadIdx.y+2][threadIdx.x] - (dt/dy) * (temp2_p  [threadIdx.y+1][threadIdx.x] - temp2_p  [threadIdx.y][threadIdx.x]);
         }
         __syncthreads();
-        if (threadIdx.y < BDIMY_Y - 4 && threadIdx.x < BDIMY_X -4 && iglobal < nx  && jglobal < ny) {
+        if (threadIdx.y < BDIMY_Y - 4 && threadIdx.x < BDIMX_X - 4 && iglobal < nx && jglobal < ny){
             int stride_old = nx + 4;
-            int idx = (jglobal+2) * stride_old + (iglobal + 2);
+            int idx = (jglobal+2) * stride_old + iglobal+2;
             d_data_con.rho[idx] = temp1_rho[threadIdx.y+2][threadIdx.x+2];
-            d_data_con.vx[idx]  = temp1_vx[threadIdx.y+2][threadIdx.x+2];
-            d_data_con.vy[idx]  = temp1_vy[threadIdx.y+2][threadIdx.x+2];
-            d_data_con.p[idx]   = temp1_p[threadIdx.y+2][threadIdx.x+2];
-
+            d_data_con.vx[idx]  = temp1_vx [threadIdx.y+2][threadIdx.x+2];
+            d_data_con.vy[idx]  = temp1_vy [threadIdx.y+2][threadIdx.x+2];
+            d_data_con.p[idx]   = temp1_p  [threadIdx.y+2][threadIdx.x+2];
         }
+        __syncthreads();
     }
 
 
@@ -1709,14 +1709,6 @@ __global__ void compute_shared (
         // dim3 grid(SHARE_X_GRID_X,SHARE_Y_GRID_Y);
         // compute_shared<<<grid, block>>>(d_data_con, dt, dx, nx, ny);
         // cudaDeviceSynchronize();
-        // cudaError_t err = cudaGetLastError();
-        // if (err != cudaSuccess) {
-        //     std::cerr << "CUDA kernel launch failed in share X: " 
-        //               << cudaGetErrorString(err) << std::endl;
-        //     exit(-1);
-        // }
-
-
         dim3 block(BDIMX_X, BDIMX_Y);
         dim3 grid(SHARE_X_GRID_X,SHARE_X_GRID_Y);
         compute_x_shared<<<grid, block>>>(d_data_con, dt, dx, nx, ny);
@@ -1728,7 +1720,7 @@ __global__ void compute_shared (
         //     exit(-1);
         // }
         // d_data_con = d_data_con;
-        
+        // cudaDeviceSynchronize();
         dim3 blocky(BDIMY_X, BDIMY_Y);
         dim3 gridy(SHARE_Y_GRID_X, SHARE_Y_GRID_Y);
         compute_y_shared<<<gridy, blocky>>>(d_data_con, dt, dy, nx, ny);

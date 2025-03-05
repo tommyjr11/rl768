@@ -13,10 +13,10 @@
         } \
     }
 
-#define BDIMX_X 32
-#define BDIMX_Y 32
-#define BDIMY_X 32
-#define BDIMY_Y 32
+#define BDIMX_X 16
+#define BDIMX_Y 16
+#define BDIMY_X 16
+#define BDIMY_Y 16
 #define nx_point 500
 #define ny_point 197
 #define SHARE_X_GRID_X (1+(nx_point + 4)/(BDIMX_X - 4))
@@ -47,7 +47,7 @@ const double y_width1 = 0.089;
 const double dx = (x_width1 - x_width0) / nx;
 const double dy = (y_width1 - y_width0) / ny;
 const double t0 = 0.0;
-const double t1 = 6.2;
+const double t1 = 19;
 const double C = 0.8;
 const double xShock = 0.005; // 激波初始位置
 // 氦气泡
