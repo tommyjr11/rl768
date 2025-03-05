@@ -89,64 +89,7 @@ __global__ void kernel_con2pri(const solVectors d_data_con, solVectors d_data_pr
     }
 }
 
-void initDataAndCopyToGPU1(solVectors &d_data_pri,solVectors d_data_con)
-{
-    std::vector<double> h_rho((nx+4) * (ny+4), 0.0);
-    std::vector<double> h_vx ((nx+4) * (ny+4), 0.0);
-    std::vector<double> h_vy ((nx+4) * (ny+4), 0.0);
-    std::vector<double> h_p  ((nx+4) * (ny+4), 0.0);
-
-    // 初始化
-    for (int j = 0; j < ny+4; j++) {
-        for (int i = 0; i < nx+4; i++) {
-            int idx = j * (nx+4) + i;
-
-            // 将(i,j)映射到物理坐标 (x, y)
-            double x = (i - ghost + 0.5) * dx; 
-            double y = (j - ghost + 0.5) * dy;
-
-            // 根据坐标区域，给出不同初值（示例）
-            if (x < 0.5) {
-                if (y < 0.5) {
-                    h_rho[idx] = 0.138;
-                    h_vx [idx] = 1.206;
-                    h_vy [idx] = 1.206;
-                    h_p  [idx] = 0.029;
-                } else {
-                    h_rho[idx] = 0.5323;
-                    h_vx [idx] = 1.206;
-                    h_vy [idx] = 0.0;
-                    h_p  [idx] = 0.3;
-                }
-            } else {
-                if (y < 0.5) {
-                    h_rho[idx] = 0.5323;
-                    h_vx [idx] = 0.0;
-                    h_vy [idx] = 1.206;
-                    h_p  [idx] = 0.3;
-                } else {
-                    h_rho[idx] = 1.5;
-                    h_vx [idx] = 0.0;
-                    h_vy [idx] = 0.0;
-                    h_p  [idx] = 1.5;
-                }
-            }
-        }
-    }
-
-    // 拷贝到 GPU
-    size_t sizeBytes = (nx+4) * (ny+4) * sizeof(double);
-    CUDA_CHECK(cudaMemcpy(d_data_pri.rho, h_rho.data(), sizeBytes, cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaMemcpy(d_data_pri.vx,  h_vx.data(),  sizeBytes, cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaMemcpy(d_data_pri.vy,  h_vy.data(),  sizeBytes, cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaMemcpy(d_data_pri.p,   h_p.data(),   sizeBytes, cudaMemcpyHostToDevice));
-    // 将 d_data_pri 的数据拷贝到 d_data_con
-    dim3 blockSize(16, 16);
-    dim3 gridSize((nx+4+15)/16, (ny+4+15)/16);
-    kernel_pri2con<<<gridSize, blockSize>>>(d_data_pri, d_data_con, nx, ny);
-    cudaDeviceSynchronize();
-}
-// void initDataAndCopyToGPU2(solVectors &d_data_pri, solVectors d_data_con)
+// void initDataAndCopyToGPU1(solVectors &d_data_pri,solVectors d_data_con)
 // {
 //     std::vector<double> h_rho((nx+4) * (ny+4), 0.0);
 //     std::vector<double> h_vx ((nx+4) * (ny+4), 0.0);
@@ -158,35 +101,35 @@ void initDataAndCopyToGPU1(solVectors &d_data_pri,solVectors d_data_con)
 //         for (int i = 0; i < nx+4; i++) {
 //             int idx = j * (nx+4) + i;
 
-//             // 将(i,j)映射到物理坐标 (x, y)，中心点略加0.5 * dx(or dy)
-//             double x = (i - ghost + 0.5f) * dx; 
-//             double y = (j - ghost + 0.5f) * dy;
+//             // 将(i,j)映射到物理坐标 (x, y)
+//             double x = (i - ghost + 0.5) * dx; 
+//             double y = (j - ghost + 0.5) * dy;
 
-//             // 先设为空气
-//             if (x < xShock) {
-//                 // 激波后空气(左侧)
-//                 h_rho[idx] = rhoPost;
-//                 h_vx [idx] = uPost;
-//                 h_vy [idx] = vPost;
-//                 h_p  [idx] = pPost;
+//             // 根据坐标区域，给出不同初值（示例）
+//             if (x < 0.5) {
+//                 if (y < 0.5) {
+//                     h_rho[idx] = 0.138;
+//                     h_vx [idx] = 1.206;
+//                     h_vy [idx] = 1.206;
+//                     h_p  [idx] = 0.029;
+//                 } else {
+//                     h_rho[idx] = 0.5323;
+//                     h_vx [idx] = 1.206;
+//                     h_vy [idx] = 0.0;
+//                     h_p  [idx] = 0.3;
+//                 }
 //             } else {
-//                 // 未受激波空气(右侧)
-//                 h_rho[idx] = rhoAir;
-//                 h_vx [idx] = uAir;
-//                 h_vy [idx] = vAir;
-//                 h_p  [idx] = pAir;
-//             }
-
-//             // 判断是否在气泡内（这一步覆盖掉空气的设定）
-//             double dxBubble = x - bubbleXc;
-//             double dyBubble = y - bubbleYc;
-//             if ( (dxBubble*dxBubble + dyBubble*dyBubble) <= bubbleR*bubbleR ) {
-//                 // 落在气泡区域
-//                 h_rho[idx] = rhoHe; 
-//                 // 氦气泡与外界等压、速度为零
-//                 h_vx [idx] = 0.0;
-//                 h_vy [idx] = 0.0;
-//                 h_p  [idx] = pAir;  // 与外界相同压强
+//                 if (y < 0.5) {
+//                     h_rho[idx] = 0.5323;
+//                     h_vx [idx] = 0.0;
+//                     h_vy [idx] = 1.206;
+//                     h_p  [idx] = 0.3;
+//                 } else {
+//                     h_rho[idx] = 1.5;
+//                     h_vx [idx] = 0.0;
+//                     h_vy [idx] = 0.0;
+//                     h_p  [idx] = 1.5;
+//                 }
 //             }
 //         }
 //     }
@@ -197,13 +140,70 @@ void initDataAndCopyToGPU1(solVectors &d_data_pri,solVectors d_data_con)
 //     CUDA_CHECK(cudaMemcpy(d_data_pri.vx,  h_vx.data(),  sizeBytes, cudaMemcpyHostToDevice));
 //     CUDA_CHECK(cudaMemcpy(d_data_pri.vy,  h_vy.data(),  sizeBytes, cudaMemcpyHostToDevice));
 //     CUDA_CHECK(cudaMemcpy(d_data_pri.p,   h_p.data(),   sizeBytes, cudaMemcpyHostToDevice));
-
-//     // 将 d_data_pri 的数据转换为守恒量并拷到 d_data_con
+//     // 将 d_data_pri 的数据拷贝到 d_data_con
 //     dim3 blockSize(16, 16);
 //     dim3 gridSize((nx+4+15)/16, (ny+4+15)/16);
 //     kernel_pri2con<<<gridSize, blockSize>>>(d_data_pri, d_data_con, nx, ny);
 //     cudaDeviceSynchronize();
 // }
+void initDataAndCopyToGPU2(solVectors &d_data_pri, solVectors d_data_con)
+{
+    std::vector<double> h_rho((nx+4) * (ny+4), 0.0);
+    std::vector<double> h_vx ((nx+4) * (ny+4), 0.0);
+    std::vector<double> h_vy ((nx+4) * (ny+4), 0.0);
+    std::vector<double> h_p  ((nx+4) * (ny+4), 0.0);
+
+    // 初始化
+    for (int j = 0; j < ny+4; j++) {
+        for (int i = 0; i < nx+4; i++) {
+            int idx = j * (nx+4) + i;
+
+            // 将(i,j)映射到物理坐标 (x, y)，中心点略加0.5 * dx(or dy)
+            double x = (i - ghost + 0.5f) * dx; 
+            double y = (j - ghost + 0.5f) * dy;
+
+            // 先设为空气
+            if (x < xShock) {
+                // 激波后空气(左侧)
+                h_rho[idx] = rhoPost;
+                h_vx [idx] = uPost;
+                h_vy [idx] = vPost;
+                h_p  [idx] = pPost;
+            } else {
+                // 未受激波空气(右侧)
+                h_rho[idx] = rhoAir;
+                h_vx [idx] = uAir;
+                h_vy [idx] = vAir;
+                h_p  [idx] = pAir;
+            }
+
+            // 判断是否在气泡内（这一步覆盖掉空气的设定）
+            double dxBubble = x - bubbleXc;
+            double dyBubble = y - bubbleYc;
+            if ( (dxBubble*dxBubble + dyBubble*dyBubble) <= bubbleR*bubbleR ) {
+                // 落在气泡区域
+                h_rho[idx] = rhoHe; 
+                // 氦气泡与外界等压、速度为零
+                h_vx [idx] = 0.0;
+                h_vy [idx] = 0.0;
+                h_p  [idx] = pAir;  // 与外界相同压强
+            }
+        }
+    }
+
+    // 拷贝到 GPU
+    size_t sizeBytes = (nx+4) * (ny+4) * sizeof(double);
+    CUDA_CHECK(cudaMemcpy(d_data_pri.rho, h_rho.data(), sizeBytes, cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_data_pri.vx,  h_vx.data(),  sizeBytes, cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_data_pri.vy,  h_vy.data(),  sizeBytes, cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_data_pri.p,   h_p.data(),   sizeBytes, cudaMemcpyHostToDevice));
+
+    // 将 d_data_pri 的数据转换为守恒量并拷到 d_data_con
+    dim3 blockSize(16, 16);
+    dim3 gridSize((nx+4+15)/16, (ny+4+15)/16);
+    kernel_pri2con<<<gridSize, blockSize>>>(d_data_pri, d_data_con, nx, ny);
+    cudaDeviceSynchronize();
+}
 __global__ void getMaxSpeedKernel(
     const double* __restrict__ rho,
     const double* __restrict__ vx,
@@ -274,11 +274,11 @@ double getmaxspeedGPU(const solVectors &d_data_pri, double r)
         totalSize,
         r
     );
-    CUDA_CHECK(cudaDeviceSynchronize());
-    cudaError_t err = cudaGetLastError();
-    if (err != cudaSuccess) {
-        std::cerr << "CUDA Kernel Error: " << cudaGetErrorString(err) << std::endl;
-    }
+    // CUDA_CHECK(cudaDeviceSynchronize());
+    // cudaError_t err = cudaGetLastError();
+    // if (err != cudaSuccess) {
+    //     std::cerr << "CUDA Kernel Error: " << cudaGetErrorString(err) << std::endl;
+    // }
     std::vector<double> h_blockMax(gridSize, 0.0);
     CUDA_CHECK(cudaMemcpy(h_blockMax.data(), d_blockMax, gridSize * sizeof(double), cudaMemcpyDeviceToHost));
 
@@ -305,73 +305,101 @@ double getdtGPU(const solVectors &d_data_pri, double r)
 }
 
 // 内核函数：更新左右边界
-__global__ void boundary_left_right(solVectors u, int truenx, int trueny) {
+__global__ void boundary_left_right(solVectors u, int truenx, int trueny)
+{
     int i = blockIdx.x * blockDim.x + threadIdx.x;
-    if (i < trueny) {
+    if (i < trueny)
+    {
         int rowStart = i * truenx;
-        // 左边界：将第0列和第1列赋值为第2列的值
-        u.p[rowStart + 0] = u.p[rowStart + 2];
-        u.p[rowStart + 1] = u.p[rowStart + 2];
-        u.rho[rowStart + 0] = u.rho[rowStart + 2];
+
+        // --- 左边界 ---
+        // col 1 <- col 2
+        u.p  [rowStart + 1] = u.p  [rowStart + 2];
         u.rho[rowStart + 1] = u.rho[rowStart + 2];
-        u.vx[rowStart + 0] = u.vx[rowStart + 2];
-        u.vx[rowStart + 1] = u.vx[rowStart + 2];
-        u.vy[rowStart + 0] = u.vy[rowStart + 2];
-        u.vy[rowStart + 1] = u.vy[rowStart + 2];
-        
-        // 右边界：将倒数第1列和倒数第2列赋值为倒数第3列的值
-        u.p[rowStart + (truenx - 2)] = u.p[rowStart + (truenx - 3)];
-        u.p[rowStart + (truenx - 1)] = u.p[rowStart + (truenx - 3)];
+        u.vx [rowStart + 1] = u.vx [rowStart + 2];
+        u.vy [rowStart + 1] = u.vy [rowStart + 2];
+
+        // col 0 <- col 1  (此时 col 1 已经更新)
+        u.p  [rowStart + 0] = u.p  [rowStart + 3];
+        u.rho[rowStart + 0] = u.rho[rowStart + 3];
+        u.vx [rowStart + 0] = u.vx [rowStart + 3];
+        u.vy [rowStart + 0] = u.vy [rowStart + 3];
+
+        // --- 右边界 ---
+        // col (truenx - 2) <- col (truenx - 3)
+        u.p  [rowStart + (truenx - 2)] = u.p  [rowStart + (truenx - 3)];
         u.rho[rowStart + (truenx - 2)] = u.rho[rowStart + (truenx - 3)];
-        u.rho[rowStart + (truenx - 1)] = u.rho[rowStart + (truenx - 3)];
-        u.vx[rowStart + (truenx - 2)] = u.vx[rowStart + (truenx - 3)];
-        u.vx[rowStart + (truenx - 1)] = u.vx[rowStart + (truenx - 3)];
-        u.vy[rowStart + (truenx - 2)] = u.vy[rowStart + (truenx - 3)];
-        u.vy[rowStart + (truenx - 1)] = u.vy[rowStart + (truenx - 3)];
+        u.vx [rowStart + (truenx - 2)] = u.vx [rowStart + (truenx - 3)];
+        u.vy [rowStart + (truenx - 2)] = u.vy [rowStart + (truenx - 3)];
+
+        // col (truenx - 1) <- col (truenx - 2)
+        u.p  [rowStart + (truenx - 1)] = u.p  [rowStart + (truenx - 4)];
+        u.rho[rowStart + (truenx - 1)] = u.rho[rowStart + (truenx - 4)];
+        u.vx [rowStart + (truenx - 1)] = u.vx [rowStart + (truenx - 4)];
+        u.vy [rowStart + (truenx - 1)] = u.vy [rowStart + (truenx - 4)];
     }
 }
 
 // 内核函数：更新上下边界
-__global__ void boundary_top_bottom(solVectors u, int truenx, int trueny) {
+__global__ void boundary_top_bottom(solVectors u, int truenx, int trueny)
+{
     int j = blockIdx.x * blockDim.x + threadIdx.x;
-    if (j < truenx) {
-        // 上边界：将第0行和第1行赋值为第2行的值
-        u.p[0 * truenx + j] = u.p[2 * truenx + j];
-        u.p[1 * truenx + j] = u.p[2 * truenx + j];
-        u.rho[0 * truenx + j] = u.rho[2 * truenx + j];
+    if (j < truenx)
+    {
+        // --- 上边界 ---
+        // row 1 <- row 2
+        u.p  [1 * truenx + j] = u.p  [2 * truenx + j];
         u.rho[1 * truenx + j] = u.rho[2 * truenx + j];
-        u.vx[0 * truenx + j] = u.vx[2 * truenx + j];
-        u.vx[1 * truenx + j] = u.vx[2 * truenx + j];
-        u.vy[0 * truenx + j] = u.vy[2 * truenx + j];
-        u.vy[1 * truenx + j] = u.vy[2 * truenx + j];
-        // 下边界：将倒数第1行和倒数第2行赋值为倒数第3行的值
-        u.p[(trueny - 2) * truenx + j] = u.p[(trueny - 3) * truenx + j];
-        u.p[(trueny - 1) * truenx + j] = u.p[(trueny - 3) * truenx + j];
+        u.vx [1 * truenx + j] = u.vx [2 * truenx + j];
+        u.vy [1 * truenx + j] = u.vy [2 * truenx + j];
+
+        // row 0 <- row 1  (此时 row 1 已经更新)
+        u.p  [0 * truenx + j] = u.p  [3 * truenx + j];
+        u.rho[0 * truenx + j] = u.rho[3 * truenx + j];
+        u.vx [0 * truenx + j] = u.vx [3 * truenx + j];
+        u.vy [0 * truenx + j] = u.vy [3 * truenx + j];
+
+        // --- 下边界 ---
+        // row (trueny - 2) <- row (trueny - 3)
+        u.p  [(trueny - 2) * truenx + j] = u.p  [(trueny - 3) * truenx + j];
         u.rho[(trueny - 2) * truenx + j] = u.rho[(trueny - 3) * truenx + j];
-        u.rho[(trueny - 1) * truenx + j] = u.rho[(trueny - 3) * truenx + j];
-        u.vx[(trueny - 2) * truenx + j] = u.vx[(trueny - 3) * truenx + j];
-        u.vx[(trueny - 1) * truenx + j] = u.vx[(trueny - 3) * truenx + j];
+        u.vx [(trueny - 2) * truenx + j] = u.vx [(trueny - 3) * truenx + j];
+        u.vy [(trueny - 2) * truenx + j] = u.vy [(trueny - 3) * truenx + j];
+
+        // row (trueny - 1) <- row (trueny - 2)
+        u.p  [(trueny - 1) * truenx + j] = u.p  [(trueny - 4) * truenx + j];
+        u.rho[(trueny - 1) * truenx + j] = u.rho[(trueny - 4) * truenx + j];
+        u.vx [(trueny - 1) * truenx + j] = u.vx [(trueny - 4) * truenx + j];
+        u.vy [(trueny - 1) * truenx + j] = u.vy [(trueny - 4) * truenx + j];
     }
 }
 
-// 边界条件更新函数：接收指向GPU内存的指针
-void applyBoundaryConditions(solVectors &d_u) {
-    int threadsPerBlock = 128;
+// 边界条件更新函数
+void applyBoundaryConditions(solVectors &d_u)
+{
+    // nx、ny 是实际物理网格的大小
+    // 如果您在分配时加了 4 个ghost cell，则
     int truenx = nx + 4;
     int trueny = ny + 4;
+
+    int threadsPerBlock = 64;
+
     // 更新左右边界：每个线程处理一行
-    int blocksLR = ((ny+4) + threadsPerBlock - 1) / threadsPerBlock;
+    int blocksLR = (trueny + threadsPerBlock - 1) / threadsPerBlock;
     boundary_left_right<<<blocksLR, threadsPerBlock>>>(d_u, truenx, trueny);
+
     // 更新上下边界：每个线程处理一列
-    int blocksTB = (nx + threadsPerBlock - 1) / threadsPerBlock;
+    int blocksTB = (truenx + threadsPerBlock - 1) / threadsPerBlock;
     boundary_top_bottom<<<blocksTB, threadsPerBlock>>>(d_u, truenx, trueny);
-    // 等待内核执行完成
+
+    // 等待内核执行完成并检查错误
     cudaDeviceSynchronize();
     cudaError_t err = cudaGetLastError();
-        if (err != cudaSuccess) {
-            std::cerr << "CUDA kernel launch failed at boundary: " << cudaGetErrorString(err) << std::endl;
-            exit(-1);
-        }
+    if (err != cudaSuccess) {
+        std::cerr << "CUDA kernel launch failed at boundary: "
+                  << cudaGetErrorString(err) << std::endl;
+        exit(-1);
+    }
 }
 
 // __device__ double limiterL2(double smaller, double larger) {
@@ -416,7 +444,7 @@ __device__ double limiterL2(double smaller, double larger) {
         R_slope = 0.0;
     }
     else if (larger == 0 && smaller != 0){
-        return 1.0;
+        return 0.0;
     }
     else{
         R_slope = smaller/larger;
@@ -428,8 +456,8 @@ __device__ double limiterL2(double smaller, double larger) {
         return R_slope;
     }
     else {
-        double temp2 = 2*R_slope/(1+R_slope);
-        return fmin(1.0, temp2);
+        double temp2 = temp2 = 2/(1+R_slope);
+        return min(1.0, temp2);
         }  
 }
 
@@ -454,7 +482,7 @@ __device__ double limiterR2(double smaller, double larger) {
     else 
     {
         double temp2 = 2/(1+R_slope);
-        return fmin(1.0, temp2);
+        return min(1.0, temp2);
     }
 }
 
@@ -1039,13 +1067,13 @@ void list_con2pri(
     dim3 grid( (nx + 4 + block.x - 1) / block.x,
                (ny + 4 + block.y - 1) / block.y );
     list_con2priKernel<<<grid, block>>>(d_data_con, d_data_pri, nx, ny);
-    // cudaDeviceSynchronize();
-    // cudaError_t err = cudaGetLastError();
-    // if (err != cudaSuccess) {
-    //         std::cerr << "CUDA kernel launch failed in list_con2pri: " 
-    //                   << cudaGetErrorString(err) << std::endl;
-    //         exit(-1);
-    //     }
+    cudaDeviceSynchronize();
+    cudaError_t err = cudaGetLastError();
+    if (err != cudaSuccess) {
+            std::cerr << "CUDA kernel launch failed in list_con2pri: " 
+                      << cudaGetErrorString(err) << std::endl;
+            exit(-1);
+        }
 }
 
 void freeDeviceMemory2(solVectors &d_half_uL, solVectors &d_half_uR, solVectors &d_SLIC_flux) {
@@ -1107,7 +1135,7 @@ __global__ void compute_x_shared (
 
 
 
-        int iglobal = (blockIdx.x == 0) ? threadIdx.x : (BDIMX_X - 4) + (BDIMX_X - 4) * (blockIdx.x - 1) + threadIdx.x;
+        int iglobal = (blockIdx.x == 0) ? threadIdx.x : (BDIMX_X) + (BDIMX_X - 4) * (blockIdx.x - 1) + threadIdx.x-4;
         int jglobal = blockIdx.y * BDIMX_Y + threadIdx.y;
         int stride = nx + 4;
         if (iglobal >= nx + 4 || jglobal >= ny + 4) {
@@ -1257,7 +1285,7 @@ __global__ void compute_y_shared (
         __shared__ double temp2_p  [BDIMY_Y-2][BDIMY_X];
 
         int iglobal = blockIdx.x * blockDim.x + threadIdx.x;
-        int jglobal = (blockIdx.y == 0) ? threadIdx.y : (BDIMY_Y - 4) + (BDIMY_Y - 4) * (blockIdx.y - 1) + threadIdx.y;
+        int jglobal = (blockIdx.y == 0) ? threadIdx.y : (BDIMY_Y) + (BDIMY_Y - 4) * (blockIdx.y - 1) + threadIdx.y-4;
         int stride = nx + 4;
         if (iglobal >= nx + 4 || jglobal >= ny + 4) {
             return;
@@ -1387,22 +1415,324 @@ __global__ void compute_y_shared (
         }
     }
 
+
+
+__global__ void compute_shared (
+        solVectors d_data_con,
+        double dt,
+        double dx,
+        int nx,
+        int ny)
+    {
+        __shared__ double temp1_rho[BDIMX_Y][BDIMX_X];
+        __shared__ double temp1_vx [BDIMX_Y][BDIMX_X];
+        __shared__ double temp1_vy [BDIMX_Y][BDIMX_X];
+        __shared__ double temp1_p  [BDIMX_Y][BDIMX_X];
+
+        __shared__ double temp2_rho[BDIMX_Y][BDIMX_X];
+        __shared__ double temp2_vx [BDIMX_Y][BDIMX_X];
+        __shared__ double temp2_vy [BDIMX_Y][BDIMX_X];
+        __shared__ double temp2_p  [BDIMX_Y][BDIMX_X];
+
+        __shared__ double temp3_rho[BDIMY_Y][BDIMY_X];
+        __shared__ double temp3_vx [BDIMY_Y][BDIMY_X];
+        __shared__ double temp3_vy [BDIMY_Y][BDIMY_X];
+        __shared__ double temp3_p  [BDIMY_Y][BDIMY_X];
+
+
+
+        int iglobal = (blockIdx.x == 0) ? threadIdx.x : (BDIMX_X) + (BDIMX_X - 4) * (blockIdx.x - 1) + threadIdx.x-4;
+        int jglobal = (blockIdx.y == 0) ? threadIdx.y : (BDIMX_Y) + (BDIMX_Y - 4) * (blockIdx.y - 1) + threadIdx.y-4;
+        int stride = nx + 4;
+        if (iglobal >= nx + 4 || jglobal >= ny + 4) {
+            return;
+        }
+        int idx = jglobal * stride + iglobal;
+        temp1_rho[threadIdx.y][threadIdx.x] = d_data_con.rho[idx];
+        temp1_vx [threadIdx.y][threadIdx.x] = d_data_con.vx [idx];
+        temp1_vy [threadIdx.y][threadIdx.x] = d_data_con.vy [idx];
+        temp1_p  [threadIdx.y][threadIdx.x] = d_data_con.p  [idx];
+        __syncthreads();
+        if (threadIdx.x < BDIMX_X - 2  && threadIdx.y < BDIMX_Y && iglobal < nx + 2 && jglobal < ny + 4) {
+            int tempx = threadIdx.x + 1;
+            double conM[4];  // con(i,j)
+            double conL[4];  // con(i-1,j)
+            double conR[4];  // con(i+1,j)
+            conM[0] = temp1_rho[threadIdx.y][tempx];
+            conM[1] = temp1_vx [threadIdx.y][tempx];  // 这里 vx 里实际存的是 rho*u
+            conM[2] = temp1_vy [threadIdx.y][tempx];  // 这里 vy 里实际存的是 rho*v
+            conM[3] = temp1_p  [threadIdx.y][tempx];  // E (总能量)
+
+            conL[0] = temp1_rho[threadIdx.y][tempx - 1];
+            conL[1] = temp1_vx [threadIdx.y][tempx - 1];
+            conL[2] = temp1_vy [threadIdx.y][tempx - 1];
+            conL[3] = temp1_p  [threadIdx.y][tempx - 1];
+
+            conR[0] = temp1_rho[threadIdx.y][tempx + 1];
+            conR[1] = temp1_vx [threadIdx.y][tempx + 1];
+            conR[2] = temp1_vy [threadIdx.y][tempx + 1];
+            conR[3] = temp1_p  [threadIdx.y][tempx + 1];
+            // --- Step 2: 斜率限制，得到 tempL, tempR (仍在保守量空间) ---
+            double tempL[4], tempR[4];
+            for (int k = 0; k < 4; k++) {
+                double temp1 = conM[k] - conL[k];  // i - (i-1)
+                double temp2 = conR[k] - conM[k];  // (i+1) - i
+                double di = 0.5 * (temp1 + temp2);
+
+                // 这里分别调用 limiterL2 / limiterR2：
+                double phiL = limiterL2(temp1, temp2);
+                double phiR = limiterR2(temp1, temp2);
+
+                // 得到左右临时状态
+                tempL[k] = conM[k] - 0.5 * di * phiL;
+                tempR[k] = conM[k] + 0.5 * di * phiR;
+            }
+            // --- Step 3: 将 tempL, tempR 转为原始量 priL, priR，并计算通量 fluxL, fluxR ---
+            double priL[4], priR[4];
+            get_pri(tempL, priL);
+            get_pri(tempR, priR);
+
+            double fluxL[4], fluxR[4];
+            get_flux_x(priL, fluxL);
+            get_flux_x(priR, fluxR);
+
+            // --- Step 4: 半步更新 (回到保守量空间) ---
+            // tempL, tempR 各减去 0.5*(dt/dx)*(fluxR - fluxL)
+            for (int k = 0; k < 4; k++) {
+                double delta = 0.5 * (dt / dx) * (fluxR[k] - fluxL[k]);
+                tempL[k] = tempL[k] - delta;
+                tempR[k] = tempR[k] - delta;
+            }
+            temp3_rho[threadIdx.y][threadIdx.x] = tempL[0];
+            temp3_vx [threadIdx.y][threadIdx.x] = tempL[1];
+            temp3_vy [threadIdx.y][threadIdx.x] = tempL[2];
+            temp3_p  [threadIdx.y][threadIdx.x] = tempL[3];
+
+            temp2_rho[threadIdx.y][threadIdx.x] = tempR[0];
+            temp2_vx [threadIdx.y][threadIdx.x] = tempR[1];
+            temp2_vy [threadIdx.y][threadIdx.x] = tempR[2];
+            temp2_p  [threadIdx.y][threadIdx.x] = tempR[3];
+            
+        }
+        __syncthreads();
+        if(threadIdx.x < BDIMX_X - 3 && iglobal < nx + 1 && jglobal < ny + 4){
+            int index_XL = threadIdx.x + 1;
+            int index_XR = threadIdx.x;
+            int index_Y  = threadIdx.y;
+
+            double consL[4], consR[4];
+            consL[0] = temp3_rho[index_Y][index_XL];
+            consL[1] = temp3_vx [index_Y][index_XL];
+            consL[2] = temp3_vy [index_Y][index_XL];
+            consL[3] = temp3_p  [index_Y][index_XL];
+
+            consR[0] = temp2_rho[index_Y][index_XR];
+            consR[1] = temp2_vx [index_Y][index_XR];
+            consR[2] = temp2_vy [index_Y][index_XR];
+            consR[3] = temp2_p  [index_Y][index_XR];
+
+            // ---------------- Step 1: 转换为原始量，并计算 x 方向通量 ----------------
+            double priL[4], priR[4];
+            get_pri(consL, priL);
+            get_pri(consR, priR);
+
+            double fluxL[4], fluxR[4];
+            get_flux_x(priL, fluxL);
+            get_flux_x(priR, fluxR);
+
+            // ---------------- Step 2: 计算 LF 与 RI_U ----------------
+            double LF[4], RI_U[4];
+            for (int k = 0; k < 4; k++) {
+                LF[k]   = 0.5 * (fluxL[k] + fluxR[k]) + 0.5 * (dx / dt) * (consR[k] - consL[k]);
+                RI_U[k] = 0.5 * (consL[k] + consR[k]) - 0.5 * (dt / dx) * (fluxL[k] - fluxR[k]);
+            }
+            // ---------------- Step 3: 计算 RI 通量 ----------------
+            double pri_RI[4], RI[4];
+            get_pri(RI_U, pri_RI);
+            get_flux_x(pri_RI, RI);
+            // ---------------- Step 4: 计算最终 SLIC flux = 0.5*(LF + RI) ----------------
+            double slic_flux[4];
+            for (int k = 0; k < 4; k++) {
+                slic_flux[k] = 0.5 * (LF[k] + RI[k]);
+            }
+            temp2_rho[threadIdx.y][threadIdx.x] = slic_flux[0];
+            temp2_vx [threadIdx.y][threadIdx.x] = slic_flux[1];
+            temp2_vy [threadIdx.y][threadIdx.x] = slic_flux[2];
+            temp2_p  [threadIdx.y][threadIdx.x] = slic_flux[3];
+        }
+        __syncthreads();
+        // start to update the data
+        if (threadIdx.x < BDIMX_X - 4 && iglobal < nx && jglobal < ny + 4) {
+            temp1_rho[threadIdx.y][threadIdx.x+2] = temp1_rho[threadIdx.y][threadIdx.x+2] - (dt/dx) * (temp2_rho[threadIdx.y][threadIdx.x + 1] - temp2_rho[threadIdx.y][threadIdx.x]);
+            temp1_vx[threadIdx.y][threadIdx.x+2]  = temp1_vx[threadIdx.y][threadIdx.x+2]  - (dt/dx) * (temp2_vx [threadIdx.y][threadIdx.x + 1] - temp2_vx [threadIdx.y][threadIdx.x]);
+            temp1_vy[threadIdx.y][threadIdx.x+2]  = temp1_vy[threadIdx.y][threadIdx.x+2]  - (dt/dx) * (temp2_vy [threadIdx.y][threadIdx.x + 1] - temp2_vy [threadIdx.y][threadIdx.x]);
+            temp1_p[threadIdx.y][threadIdx.x+2]   = temp1_p[threadIdx.y][threadIdx.x+2]   - (dt/dx) * (temp2_p  [threadIdx.y][threadIdx.x + 1] - temp2_p  [threadIdx.y][threadIdx.x]);
+        }
+
+
+        __syncthreads();
+        if (threadIdx.y < BDIMY_Y - 2  && threadIdx.x < BDIMY_X && iglobal < nx + 4 && jglobal < ny + 2) {
+            int tempy = threadIdx.y + 1;
+            double conM[4];  // con(i,j)
+            double conL[4];  // con(i-1,j)
+            double conR[4];  // con(i+1,j)
+            conM[0] = temp1_rho[tempy][threadIdx.x];
+            conM[1] = temp1_vx [tempy][threadIdx.x];  // 这里 vx 里实际存的是 rho*u
+            conM[2] = temp1_vy [tempy][threadIdx.x];  // 这里 vy 里实际存的是 rho*v
+            conM[3] = temp1_p  [tempy][threadIdx.x];  // E (总能量)
+
+            conL[0] = temp1_rho[tempy - 1][threadIdx.x];
+            conL[1] = temp1_vx [tempy - 1][threadIdx.x];
+            conL[2] = temp1_vy [tempy - 1][threadIdx.x];
+            conL[3] = temp1_p  [tempy - 1][threadIdx.x];
+
+            conR[0] = temp1_rho[tempy + 1][threadIdx.x];
+            conR[1] = temp1_vx [tempy + 1][threadIdx.x];
+            conR[2] = temp1_vy [tempy + 1][threadIdx.x];
+            conR[3] = temp1_p  [tempy + 1][threadIdx.x];
+            // --- Step 2: 斜率限制，得到 tempL, tempR (仍在保守量空间) ---
+            double tempL[4], tempR[4];
+            for (int k = 0; k < 4; k++) {
+                double temp1 = conM[k] - conL[k];  // i - (i-1)
+                double temp2 = conR[k] - conM[k];  // (i+1) - i
+                double di = 0.5 * (temp1 + temp2);
+
+                // 这里分别调用 limiterL2 / limiterR2：
+                double phiL = limiterL2(temp1, temp2);
+                double phiR = limiterR2(temp1, temp2);
+
+                // 得到左右临时状态
+                tempL[k] = conM[k] - 0.5 * di * phiL;
+                tempR[k] = conM[k] + 0.5 * di * phiR;
+            }
+            // --- Step 3: 将 tempL, tempR 转为原始量 priL, priR，并计算通量 fluxL, fluxR ---
+            double priL[4], priR[4];
+            get_pri(tempL, priL);
+            get_pri(tempR, priR);
+
+            double fluxL[4], fluxR[4];
+            get_flux_y(priL, fluxL);
+            get_flux_y(priR, fluxR);
+
+            // --- Step 4: 半步更新 (回到保守量空间) ---
+            // tempL, tempR 各减去 0.5*(dt/dx)*(fluxR - fluxL)
+            for (int k = 0; k < 4; k++) {
+                double delta = 0.5 * (dt / dy) * (fluxR[k] - fluxL[k]);
+                tempL[k] = tempL[k] - delta;
+                tempR[k] = tempR[k] - delta;
+            }
+            temp3_rho[threadIdx.y][threadIdx.x] = tempL[0];
+            temp3_vx [threadIdx.y][threadIdx.x] = tempL[1];
+            temp3_vy [threadIdx.y][threadIdx.x] = tempL[2];
+            temp3_p  [threadIdx.y][threadIdx.x] = tempL[3];
+
+            temp2_rho[threadIdx.y][threadIdx.x] = tempR[0];
+            temp2_vx [threadIdx.y][threadIdx.x] = tempR[1];
+            temp2_vy [threadIdx.y][threadIdx.x] = tempR[2];
+            temp2_p  [threadIdx.y][threadIdx.x] = tempR[3];
+            
+        }
+        __syncthreads();
+        if(threadIdx.y < BDIMY_Y - 3 && iglobal < nx + 4 && jglobal < ny + 1){
+            int index_YL = threadIdx.y + 1;
+            int index_YR = threadIdx.y;
+            int index_X  = threadIdx.x;
+
+            double consL[4], consR[4];
+            consL[0] = temp3_rho[index_YL][index_X];
+            consL[1] = temp3_vx[index_YL][index_X];
+            consL[2] = temp3_vy[index_YL][index_X];
+            consL[3] = temp3_p[index_YL][index_X];
+
+            consR[0] = temp2_rho[index_YR][index_X];
+            consR[1] = temp2_vx[index_YR][index_X];
+            consR[2] = temp2_vy[index_YR][index_X];
+            consR[3] = temp2_p [index_YR][index_X];
+
+            // ---------------- Step 1: 转换为原始量，并计算 x 方向通量 ----------------
+            double priL[4], priR[4];
+            get_pri(consL, priL);
+            get_pri(consR, priR);
+
+            double fluxL[4], fluxR[4];
+            get_flux_y(priL, fluxL);
+            get_flux_y(priR, fluxR);
+
+            // ---------------- Step 2: 计算 LF 与 RI_U ----------------
+            double LF[4], RI_U[4];
+            for (int k = 0; k < 4; k++) {
+                LF[k]   = 0.5 * (fluxL[k] + fluxR[k]) + 0.5 * (dy / dt) * (consR[k] - consL[k]);
+                RI_U[k] = 0.5 * (consL[k] + consR[k]) - 0.5 * (dt / dy) * (fluxL[k] - fluxR[k]);
+            }
+            // ---------------- Step 3: 计算 RI 通量 ----------------
+            double pri_RI[4], RI[4];
+            get_pri(RI_U, pri_RI);
+            get_flux_y(pri_RI, RI);
+            // ---------------- Step 4: 计算最终 SLIC flux = 0.5*(LF + RI) ----------------
+            double slic_flux[4];
+            for (int k = 0; k < 4; k++) {
+                slic_flux[k] = 0.5 * (LF[k] + RI[k]);
+            }
+            temp2_rho[threadIdx.y][threadIdx.x] = slic_flux[0];
+            temp2_vx[threadIdx.y][threadIdx.x] = slic_flux[1];
+            temp2_vy[threadIdx.y][threadIdx.x] = slic_flux[2];
+            temp2_p[threadIdx.y][threadIdx.x] = slic_flux[3];
+        }
+        __syncthreads();
+        // start to update the data
+        if (threadIdx.y < BDIMY_Y - 4 && iglobal < nx + 4 && jglobal < ny) {
+            int stride_old = nx + 4;
+            int idx = (jglobal+2) * stride_old + iglobal;
+            temp1_rho[threadIdx.y+2][threadIdx.x] = temp1_rho[threadIdx.y+2][threadIdx.x] - (dt/dy) * (temp2_rho[threadIdx.y+1][threadIdx.x] - temp2_rho[threadIdx.y][threadIdx.x]);
+            temp1_vx[threadIdx.y+2][threadIdx.x]  = temp1_vx[threadIdx.y+2][threadIdx.x]  - (dt/dy) * (temp2_vx [threadIdx.y+1][threadIdx.x] - temp2_vx [threadIdx.y][threadIdx.x]);
+            temp1_vy[threadIdx.y+2][threadIdx.x] = temp1_vy[threadIdx.y+2][threadIdx.x]  - (dt/dy) * (temp2_vy [threadIdx.y+1][threadIdx.x] - temp2_vy [threadIdx.y][threadIdx.x]);
+            temp1_p[threadIdx.y+2][threadIdx.x]   = temp1_p[threadIdx.y+2][threadIdx.x]   - (dt/dy) * (temp2_p  [threadIdx.y+1][threadIdx.x] - temp2_p  [threadIdx.y][threadIdx.x]);
+        }
+        __syncthreads();
+        if (threadIdx.y < BDIMY_Y - 4 && threadIdx.x < BDIMY_X -4 && iglobal < nx  && jglobal < ny) {
+            int stride_old = nx + 4;
+            int idx = (jglobal+2) * stride_old + (iglobal + 2);
+            d_data_con.rho[idx] = temp1_rho[threadIdx.y+2][threadIdx.x+2];
+            d_data_con.vx[idx]  = temp1_vx[threadIdx.y+2][threadIdx.x+2];
+            d_data_con.vy[idx]  = temp1_vy[threadIdx.y+2][threadIdx.x+2];
+            d_data_con.p[idx]   = temp1_p[threadIdx.y+2][threadIdx.x+2];
+
+        }
+    }
+
+
     void launchUpdateSLICKernel(solVectors &d_data_con, double dt)
     {
+        
+
+        // dim3 block(BDIMX_X, BDIMY_Y);
+        // dim3 grid(SHARE_X_GRID_X,SHARE_Y_GRID_Y);
+        // compute_shared<<<grid, block>>>(d_data_con, dt, dx, nx, ny);
+        // cudaDeviceSynchronize();
+        // cudaError_t err = cudaGetLastError();
+        // if (err != cudaSuccess) {
+        //     std::cerr << "CUDA kernel launch failed in share X: " 
+        //               << cudaGetErrorString(err) << std::endl;
+        //     exit(-1);
+        // }
+
+
         dim3 block(BDIMX_X, BDIMX_Y);
         dim3 grid(SHARE_X_GRID_X,SHARE_X_GRID_Y);
         compute_x_shared<<<grid, block>>>(d_data_con, dt, dx, nx, ny);
-        cudaDeviceSynchronize();
+        // cudaDeviceSynchronize();
         // cudaError_t err2 = cudaGetLastError();
         // if (err2 != cudaSuccess) {
         //     std::cerr << "CUDA kernel launch failed in share X s: " 
         //               << cudaGetErrorString(err2) << std::endl;
         //     exit(-1);
         // }
+        // d_data_con = d_data_con;
+        
         dim3 blocky(BDIMY_X, BDIMY_Y);
         dim3 gridy(SHARE_Y_GRID_X, SHARE_Y_GRID_Y);
         compute_y_shared<<<gridy, blocky>>>(d_data_con, dt, dy, nx, ny);
-        cudaDeviceSynchronize();
+        // cudaDeviceSynchronize();
         // cudaError_t err = cudaGetLastError();
         // if (err != cudaSuccess) {
         //     std::cerr << "CUDA kernel launch failed in share Y: " 
@@ -1415,8 +1745,8 @@ __global__ void compute_y_shared (
     void checkKernelAttributes() {
     cudaFuncAttributes attr;
 
-    cudaFuncGetAttributes(&attr, compute_x_shared);
-    std::cout << "=== compute_x_shared Kernel Attributes ===" << std::endl;
+    cudaFuncGetAttributes(&attr, compute_shared);
+    std::cout << "=== compute_shared Kernel Attributes ===" << std::endl;
     std::cout << "Registers used: " << attr.numRegs << std::endl;
     std::cout << "Shared memory per block: " << attr.sharedSizeBytes << " bytes" << std::endl;
     std::cout << "Constant memory used: " << attr.constSizeBytes << " bytes" << std::endl;

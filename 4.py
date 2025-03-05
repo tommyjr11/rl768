@@ -37,8 +37,10 @@ X, Y = np.meshgrid(x, y)
 # ========== 4. 计算全局压力范围 ==========
 p_min, p_max = np.min(p), np.max(p)
 
-# ========== 5. 设定密度等值线 ==========
-rho_levels = np.arange(np.min(rho),  np.max(rho), 0.08)  
+# ========== 5. 设定密度等值线 =====
+# =====
+rho_levels = np.arange(np.min(rho),  np.max(rho), 0.05)  
+# rho_levels = np.arange(0.0,  1.7, 0.12)  
 
 # ========== 6. 速度矢量场下采样 ==========
 skip = max(1, nx // 50)  # 让箭头密度随网格分辨率调整
@@ -54,7 +56,7 @@ fig, ax = plt.subplots(figsize=(fig_width, fig_height))  # 调整图像大小
 c = ax.contourf(X, Y, p, levels=50, cmap='jet', vmin=p_min, vmax=p_max)
 
 # (2) 以密度 rho 作为等值线（黑色线）
-ax.contour(X, Y, rho, levels=rho_levels, colors='k', linewidths=0.3)
+ax.contour(X, Y, rho, levels=rho_levels, colors='k', linewidths=0.4)
 
 # # (3) 速度矢量场（减少箭头数量）
 # ax.quiver(X[::skip, ::skip], Y[::skip, ::skip], 
