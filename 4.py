@@ -30,8 +30,8 @@ vy  = data[..., 2]   # y方向速度
 p   = data[..., 3]   # 压力
 print(f"Min pressure: {np.min(rho)}, Max pressure: {np.max(rho)}")
 # ========== 3. 网格坐标 ==========
-x = np.linspace(0, 1, nx)
-y = np.linspace(0, 1, ny)
+x = np.linspace(0, 0.225, nx)
+y = np.linspace(0, 0.089, ny)
 X, Y = np.meshgrid(x, y)
 
 # ========== 4. 计算全局压力范围 ==========
@@ -39,8 +39,8 @@ p_min, p_max = np.min(p), np.max(p)
 
 # ========== 5. 设定密度等值线 =====
 # =====
-rho_levels = np.arange(np.min(rho),  np.max(rho), 0.05)  
-# rho_levels = np.arange(0.0,  1.7, 0.12)  
+# rho_levels = np.arange(np.min(rho),  np.max(rho), 0.05)  
+rho_levels = np.arange(0.16,  1.7, 0.1)  
 
 # ========== 6. 速度矢量场下采样 ==========
 skip = max(1, nx // 50)  # 让箭头密度随网格分辨率调整
@@ -58,17 +58,14 @@ c = ax.contourf(X, Y, p, levels=50, cmap='jet', vmin=p_min, vmax=p_max)
 # (2) 以密度 rho 作为等值线（黑色线）
 ax.contour(X, Y, rho, levels=rho_levels, colors='k', linewidths=0.4)
 
-# # (3) 速度矢量场（减少箭头数量）
-# ax.quiver(X[::skip, ::skip], Y[::skip, ::skip], 
-#           vx[::skip, ::skip], vy[::skip, ::skip], 
-#           color='white', scale=40, width=0.002)
 
-ax.set_title('Final Time Step', fontsize=12)
+
+ax.set_title('500*197 GPU', fontsize=12)
 ax.set_xlabel('X')
 ax.set_ylabel('Y')
-ax.set_xlim([0, 1])
-ax.set_ylim([0, 1])
-ax.set_aspect(ny / nx)
+ax.set_xlim([0, 0.225])
+ax.set_ylim([0, 0.089])
+ax.set_aspect((2*ny) / nx)
 
 # 添加 colorbar
 fig.colorbar(c, ax=ax, label='Pressure')

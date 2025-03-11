@@ -36,7 +36,7 @@ X, Y = np.meshgrid(x, y)
 p_min, p_max = np.min(p), np.max(p)
 
 # ========== 5. 设定密度等值线 ==========
-rho_levels = np.arange(0.16, 1.71 + 0.1, 0.1)  # 0.2 ~ 1.6，每 0.1 取一条线
+rho_levels = np.arange(0.16, 1.71, 0.1)  # 0.2 ~ 1.6，每 0.1 取一条线
 
 # ========== 6. 速度矢量场下采样 ==========
 skip = max(1, nx // 50)  # 让箭头密度随网格分辨率调整
@@ -55,7 +55,7 @@ ax.quiver(X[::skip, ::skip], Y[::skip, ::skip],
           vx[::skip, ::skip], vy[::skip, ::skip], 
           color='white', scale=40, width=0.002)
 
-ax.set_title('Final Time Step', fontsize=12)
+ax.set_title('800*800 GPU', fontsize=12)
 ax.set_xlabel('X')
 ax.set_ylabel('Y')
 ax.set_xlim([0, 1])

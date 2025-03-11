@@ -7,6 +7,7 @@
 #include <string>
 #include <sstream>
 #include <iomanip>
+#include <chrono>
 
 
 void allocateDeviceMemory(solVectors &d_data_pri, solVectors &d_data_con) {
@@ -1704,14 +1705,28 @@ __global__ void compute_shared (
     void launchUpdateSLICKernel(solVectors &d_data_con, double dt)
     {
         
-
+        // auto one_kernal = std::chrono::high_resolution_clock::now();
         // dim3 block(BDIMX_X, BDIMY_Y);
         // dim3 grid(SHARE_X_GRID_X,SHARE_Y_GRID_Y);
         // compute_shared<<<grid, block>>>(d_data_con, dt, dx, nx, ny);
         // cudaDeviceSynchronize();
+        // auto dt_end = std::chrono::high_resolution_clock::now();
+        // std::chrono::duration<double, std::milli> dt_duration = dt_end - one_kernal;
+        // std::cout << "one kernal time: " << dt_duration.count() << " millisecond"<<std::endl;
+
+
+        // cudaDeviceSynchronize();
+
+        // auto two_kernal_x = std::chrono::high_resolution_clock::now();
         dim3 block(BDIMX_X, BDIMX_Y);
         dim3 grid(SHARE_X_GRID_X,SHARE_X_GRID_Y);
         compute_x_shared<<<grid, block>>>(d_data_con, dt, dx, nx, ny);
+        // cudaDeviceSynchronize();
+        // auto dt_end = std::chrono::high_resolution_clock::now();
+        // std::chrono::duration<double, std::milli> dt_duration = dt_end - two_kernal_x;
+        // std::cout << "two kernal x time: " << dt_duration.count() << " millisecond"<<std::endl;
+
+
         // cudaDeviceSynchronize();
         // cudaError_t err2 = cudaGetLastError();
         // if (err2 != cudaSuccess) {
@@ -1721,9 +1736,16 @@ __global__ void compute_shared (
         // }
         // d_data_con = d_data_con;
         // cudaDeviceSynchronize();
+
+        // auto two_kernal_y = std::chrono::high_resolution_clock::now();
         dim3 blocky(BDIMY_X, BDIMY_Y);
         dim3 gridy(SHARE_Y_GRID_X, SHARE_Y_GRID_Y);
         compute_y_shared<<<gridy, blocky>>>(d_data_con, dt, dy, nx, ny);
+        // cudaDeviceSynchronize();
+        // auto dt_end_y = std::chrono::high_resolution_clock::now();
+        // std::chrono::duration<double, std::milli> dt_duration_y = dt_end_y - two_kernal_y;
+        // std::cout << "two kernal y time: " << dt_duration_y.count() << " millisecond"<<std::endl;
+
         // cudaDeviceSynchronize();
         // cudaError_t err = cudaGetLastError();
         // if (err != cudaSuccess) {
